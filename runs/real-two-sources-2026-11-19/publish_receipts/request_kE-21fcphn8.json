@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "request_id": "real-yt-kE-21fcphn8-c24b6e857589",
+  "job_id": "ec71531952714df2b4cfe581b2fc2552",
+  "status": "REMOTE_PROCESSING",
+  "error": null,
+  "idempotency_key": "real-yt-kE-21fcphn8-c24b6e857589",
+  "platform": "youtube",
+  "profile": "default",
+  "timestamp": "2026-11-19T21:03:50.294579+00:00"
+}

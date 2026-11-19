@@ -1,0 +1,12 @@
+{
+  "variant_id": "rdjavi-clip-05",
+  "clip_name": "clip_05_rdjavi_idioma_espanol.mp4",
+  "title": "Configurando el idioma espanol en GTA 6 por primera vez #Shorts #GTA6 #Espanol",
+  "visibility": "public",
+  "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-05-0130e1c916",
+  "ok": false,
+  "request_id": "pub-yt-rdjavi-rdjavi-clip-05-0130e1c916",
+  "job_id": null,
+  "error": "Error HTTP 429 desde Upload-Post: {\"success\":false,\"message\":\"This upload (1 platforms) would exceed your monthly limit of 10 uploads. You have 0 upload(s) remaining this period. Paid plans have unlimited uploads: https://app.upload-post.com/pricing?plan=basic&interval=monthly&autostart=1\",\"usage\":{\"count\":10,\"limit\":10,\"last_reset\":\"2026-11-19T19:37:44.257886\"},\"error_code\":\"monthly_limit_reached\",\"upgrade_url\":\"https://app.upload-post.com/pricing?plan=basic&interval=monthly&autostart=1\"}\n",
+  "timestamp": "2026-11-19T21:23:40.137459+00:00"
+}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ClipFlow Admin Panel{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="min-h-full flex flex-col font-sans antialiased">
+  <!-- Navbar -->
+  <nav class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-indigo-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <i class="fa-solid fa-scissors text-white text-lg"></i>
+          </div>
+          <div>
+            <span class="font-bold text-lg bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">ClipFlow</span>
+            <span class="text-xs px-2 py-0.5 ml-2 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">AutoClip Publisher</span>
+          </div>
+        </div>
+        <div class="flex items-center space-x-4 text-sm">
+          <a href="/" class="hover:text-indigo-400 px-3 py-1.5 rounded-md transition {% if request.url.path == '/' %}text-indigo-400 bg-slate-700/50{% endif %}">
+            <i class="fa-solid fa-table-columns mr-1.5"></i> Proyectos
+          </a>
+          <a href="/queue" class="hover:text-indigo-400 px-3 py-1.5 rounded-md transition {% if request.url.path == '/queue' %}text-indigo-400 bg-slate-700/50{% endif %}">
+            <i class="fa-solid fa-list-check mr-1.5"></i> Cola & Publicaciones
+          </a>
+          <a href="/audit" class="hover:text-indigo-400 px-3 py-1.5 rounded-md transition {% if request.url.path == '/audit' %}text-indigo-400 bg-slate-700/50{% endif %}">
+            <i class="fa-solid fa-shield-halved mr-1.5"></i> Auditoría
+          </a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-slate-800/40 border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+    <p>AutoClip Publisher &copy; 2026 &middot; Motor AutoClip Studio & Upload-Post Integrado</p>
+  </footer>
+</body>
+</html>

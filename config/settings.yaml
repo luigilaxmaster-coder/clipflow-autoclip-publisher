@@ -1,0 +1,40 @@
+app:
+  data_dir: "C:/Users/PD2/Desktop/clips/data"
+  timezone: "America/Santo_Domingo"
+  log_level: "INFO"
+  max_concurrent_video_jobs: 1
+  max_concurrent_uploads: 1
+  retain_source_days: 30
+
+analysis:
+  max_clips_per_source: 10
+  target_clip_duration_sec: [30, 60]
+  min_quality_score: 0.6
+  min_spacing_between_selected_clips_sec: 8
+  transcription: "existing_srt_then_local_or_configured_cloud"
+  analysis_provider: "autoclip_saved_settings"
+
+render:
+  platforms: ["youtube_shorts", "tiktok"]
+  portrait_style: "podcast"
+  template: "classic"
+  aspect_ratio: "9:16"
+  subtitles: true
+  brand_outro: false
+  validate_mp4: true
+
+publishing:
+  provider: "upload_post"
+  profile: "main"
+  mode: "draft_only"  # draft_only | private_test | manual | auto_approved
+  public_autopublish: false
+  default_visibility:
+    youtube: "private"
+    tiktok: "SELF_ONLY"
+  schedule_timezone: "America/Santo_Domingo"
+  max_publishes_per_day_per_platform: 2
+  retry_attempts: 3
+  retry_backoff_sec: 5
+  require_account_preflight: true
+  require_qa_pass: true
+  deduplicate_uploads: true

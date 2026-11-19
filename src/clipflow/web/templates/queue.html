@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Cola de Publicación &middot; ClipFlow{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-bold text-white flex items-center">
+        <i class="fa-solid fa-list-check mr-2 text-indigo-400"></i> Trabajos de Publicación y Programación
+      </h1>
+      <p class="text-xs text-slate-400 mt-1">
+        Trazabilidad de envíos a YouTube Shorts y TikTok mediante Upload-Post.
+      </p>
+    </div>
+  </div>
+
+  <div class="bg-slate-800/60 rounded-xl border border-slate-700/50 overflow-hidden shadow-xl">
+    {% if not jobs %}
+    <div class="p-12 text-center text-slate-400">
+      <i class="fa-solid fa-inbox text-4xl mb-3 text-slate-600"></i>
+      <p class="text-sm">No hay trabajos registrados en la cola de publicación.</p>
+    </div>
+    {% else %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm text-slate-300">
+        <thead class="bg-slate-900/50 text-xs uppercase text-slate-400 border-b border-slate-700/50">
+          <tr>
+            <th class="px-6 py-3">ID Trabajo</th>
+            <th class="px-6 py-3">Plataforma</th>
+            <th class="px-6 py-3">Título</th>
+            <th class="px-6 py-3">Estado</th>
+            <th class="px-6 py-3">Idempotency Key</th>
+            <th class="px-6 py-3">Programado (UTC)</th>
+            <th class="px-6 py-3">Resultado / Enlace</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/40 text-xs">
+          {% for j in jobs %}
+          <tr class="hover:bg-slate-700/20 transition">
+            <td class="px-6 py-4 font-mono text-indigo-300">{{ j.id[:8] }}...</td>
+            <td class="px-6 py-4">
+              <span class="font-bold uppercase {% if j.post_draft.platform == 'youtube' %}text-red-400{% else %}text-pink-400{% endif %}">
+                {{ j.post_draft.platform if j.post_draft else '-' }}
+              </span>
+            </td>
+            <td class="px-6 py-4 max-w-xs truncate" title="{{ j.post_draft.title if j.post_draft else '' }}">
+              {{ j.post_draft.title if j.post_draft else '-' }}
+            </td>
+            <td class="px-6 py-4">
+              {% if j.status == 'PUBLISHED' %}
+              <span class="px-2 py-0.5 rounded-full font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                PUBLISHED
+              </span>
+              {% elif j.status == 'QUEUED' %}
+              <span class="px-2 py-0.5 rounded-full font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                QUEUED
+              </span>
+              {% elif j.status == 'REMOTE_PROCESSING' or j.status == 'UPLOADING' %}
+              <span class="px-2 py-0.5 rounded-full font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                {{ j.status }}
+              </span>
+              {% else %}
+              <span class="px-2 py-0.5 rounded-full font-medium bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                {{ j.status }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 font-mono text-slate-400">{{ j.idempotency_key }}</td>
+            <td class="px-6 py-4 text-slate-400">
+              {{ j.scheduled_at_utc.strftime('%Y-%m-%d %H:%M') if j.scheduled_at_utc else 'Inmediato' }}
+            </td>
+            <td class="px-6 py-4">
+              {% if j.remote_url %}
+              <a href="{{ j.remote_url }}" target="_blank" class="text-indigo-400 hover:underline flex items-center">
+                Ver publicación <i class="fa-solid fa-arrow-up-right-from-square ml-1 text-[10px]"></i>
+              </a>
+              {% elif j.last_error %}
+              <span class="text-rose-400 truncate block max-w-xs" title="{{ j.last_error }}">{{ j.last_error }}</span>
+              {% else %}
+              <span class="text-slate-500">-</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

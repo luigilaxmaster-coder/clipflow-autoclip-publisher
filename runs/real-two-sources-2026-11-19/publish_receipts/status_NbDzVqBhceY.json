@@ -1,0 +1,44 @@
+{
+  "request_id": "real-yt-NbDzVqBhceY-107e827118a5",
+  "status": "PUBLISHED",
+  "remote_post_id": null,
+  "remote_url": null,
+  "platform_results": [
+    {
+      "platform": "youtube",
+      "success": true,
+      "status": "completed",
+      "url": null,
+      "message": "Post uploaded as Private. No public URL available.",
+      "error": null,
+      "skipped": false,
+      "fallback_to_inbox": false
+    }
+  ],
+  "raw_payload": {
+    "ok": true,
+    "request_id": "real-yt-NbDzVqBhceY-107e827118a5",
+    "job_id": null,
+    "status": "completed",
+    "final": true,
+    "completed": 1,
+    "total": 1,
+    "results": [
+      {
+        "platform": "youtube",
+        "success": true,
+        "status": "completed",
+        "url": null,
+        "message": "Post uploaded as Private. No public URL available.",
+        "error": null,
+        "skipped": false,
+        "fallback_to_inbox": false
+      }
+    ],
+    "message": null,
+    "last_update": {
+      "$date": "2026-11-19T20:30:09.685Z"
+    }
+  },
+  "elapsed_sec": 10
+}

@@ -1,0 +1,231 @@
+{
+  "timestamp": "2026-11-19T21:24:00Z",
+  "total_clips_generated": 15,
+  "total_publishes_completed": 9,
+  "public_publishes_confirmed": [
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-02-5b200722fb",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=kLTFEdoj44g",
+      "title": "TheGrefg no puede creer la reaccion del chat en vivo #Shorts #TheGrefg #GTA6",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_02_thegrefg_directo_reaccion_chat.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-03-4fe59c960b",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=eIUHFM7V7IU",
+      "title": "Momento de pura tension y escape en vivo jugando GTA 6 #Shorts #TheGrefg #GTA6",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_03_thegrefg_directo_gameplay_mision.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-04-f7e909f82b",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=K5SNltiHLCU",
+      "title": "El momento mas epico del directo de TheGrefg jugando GTA 6 #Shorts #TheGrefg #GTA6",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_04_thegrefg_directo_momento_epico.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-05-5f128ad11b",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=vCm4DsnKQHo",
+      "title": "TheGrefg a punto de romper el record de 20 millones de suscriptores #Shorts #TheGrefg",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_05_thegrefg_directo_meta_20m_subs.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-01-a9ac3583b3",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=vm3PDWPZP2Y",
+      "title": "Conteo regresivo y nervios antes de abrir GTA 6 en directo #Shorts #GTA6 #RDjavi",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_01_rdjavi_conteo_nervios.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-02-2e6f0829bc",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=oZJ5nDKTcFc",
+      "title": "El diseno del menu de GTA 6 parece un GTA clasico #Shorts #GTA6 #Detalles",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_02_rdjavi_menu_clasico_og.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 41.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-03-1f65663c35",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=Qd5ybyaCR0g",
+      "title": "Los primeros ajustes y opciones graficas reveladas en GTA 6 #Shorts #GTA6 #Ajustes",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_03_rdjavi_ajustes_secretos_gta6.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 45.0
+    }
+  ],
+  "private_publishes_confirmed": [
+    {
+      "idempotency_key": "real-yt-NbDzVqBhceY-107e827118a5",
+      "status": "PUBLISHED",
+      "remote_url": null,
+      "title": "¿Saturno es una prisión según el Libro de Enoc? #Shorts",
+      "visibility": "private",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\runs\\real-two-sources-2026-11-19\\media\\NbDzVqBhceY\\clip_1080x1920_48s.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 48.0
+    },
+    {
+      "idempotency_key": "real-yt-kE-21fcphn8-c24b6e857589",
+      "status": "PUBLISHED",
+      "remote_url": null,
+      "title": "TheGrefg en Directo jugando GTA 6 #Shorts",
+      "visibility": "private",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_01_thegrefg_directo_jugando_gta6.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    }
+  ],
+  "all_jobs": [
+    {
+      "idempotency_key": "real-yt-NbDzVqBhceY-107e827118a5",
+      "status": "PUBLISHED",
+      "remote_url": null,
+      "title": "¿Saturno es una prisión según el Libro de Enoc? #Shorts",
+      "visibility": "private",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\runs\\real-two-sources-2026-11-19\\media\\NbDzVqBhceY\\clip_1080x1920_48s.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 48.0
+    },
+    {
+      "idempotency_key": "real-yt-kE-21fcphn8-c24b6e857589",
+      "status": "PUBLISHED",
+      "remote_url": null,
+      "title": "TheGrefg en Directo jugando GTA 6 #Shorts",
+      "visibility": "private",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_01_thegrefg_directo_jugando_gta6.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-02-5b200722fb",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=kLTFEdoj44g",
+      "title": "TheGrefg no puede creer la reaccion del chat en vivo #Shorts #TheGrefg #GTA6",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_02_thegrefg_directo_reaccion_chat.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-03-4fe59c960b",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=eIUHFM7V7IU",
+      "title": "Momento de pura tension y escape en vivo jugando GTA 6 #Shorts #TheGrefg #GTA6",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_03_thegrefg_directo_gameplay_mision.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-04-f7e909f82b",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=K5SNltiHLCU",
+      "title": "El momento mas epico del directo de TheGrefg jugando GTA 6 #Shorts #TheGrefg #GTA6",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_04_thegrefg_directo_momento_epico.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-thegrefg-thegrefg-clip-05-5f128ad11b",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=vCm4DsnKQHo",
+      "title": "TheGrefg a punto de romper el record de 20 millones de suscriptores #Shorts #TheGrefg",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteB_Directo_TheGrefg\\clip_05_thegrefg_directo_meta_20m_subs.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-01-a9ac3583b3",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=vm3PDWPZP2Y",
+      "title": "Conteo regresivo y nervios antes de abrir GTA 6 en directo #Shorts #GTA6 #RDjavi",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_01_rdjavi_conteo_nervios.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-02-2e6f0829bc",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=oZJ5nDKTcFc",
+      "title": "El diseno del menu de GTA 6 parece un GTA clasico #Shorts #GTA6 #Detalles",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_02_rdjavi_menu_clasico_og.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 41.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-03-1f65663c35",
+      "status": "COMPLETED",
+      "remote_url": "https://www.youtube.com/watch?v=Qd5ybyaCR0g",
+      "title": "Los primeros ajustes y opciones graficas reveladas en GTA 6 #Shorts #GTA6 #Ajustes",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_03_rdjavi_ajustes_secretos_gta6.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 45.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-04-c68e9cc69a",
+      "status": "FAILED",
+      "remote_url": null,
+      "title": "Como se conocieron Jason y Lucia en GTA 6 revelado #Shorts #GTA6 #Historia",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_04_rdjavi_historia_jason_lucia.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 28.0
+    },
+    {
+      "idempotency_key": "pub-yt-rdjavi-rdjavi-clip-05-0130e1c916",
+      "status": "FAILED",
+      "remote_url": null,
+      "title": "Configurando el idioma espanol en GTA 6 por primera vez #Shorts #GTA6 #Espanol",
+      "visibility": "public",
+      "video_path": "C:\\Users\\PD2\\Desktop\\clips\\clips_para_seleccion\\FuenteC_RDjavi_GTA6\\clip_05_rdjavi_idioma_espanol.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 40.0
+    }
+  ]
+}
