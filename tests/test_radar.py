@@ -24,3 +24,4 @@ def test_radar_ignores_already_processed_stream(tmp_path: Path):
         mock_run.return_value = MagicMock(returncode=0, stdout='{"id": "video_123", "is_live": true}')
         res = radar.check_channel_live("TestCreator", "https://youtube.com/@test/live")
         assert res is None
+

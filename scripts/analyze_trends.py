@@ -50,3 +50,4 @@ for idx, v in enumerate(spain_videos[:15], start=1):
 with open("runs/trends_comparison.json", "w", encoding="utf-8") as f:
     json.dump({"usa": usa_videos, "spain": spain_videos}, f, indent=2, ensure_ascii=False)
 print("\nDatos guardados en runs/trends_comparison.json")
+

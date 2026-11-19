@@ -8,6 +8,13 @@ import logging
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from dotenv import load_dotenv
 
 root_dir = Path(__file__).resolve().parent.parent
@@ -62,3 +69,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
