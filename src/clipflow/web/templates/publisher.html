@@ -1,337 +1,329 @@
 {% extends "base.html" %}
+{% from "_icons.html" import platform_icon %}
 
-{% block title %}Publisher Multired — AutoClip Publisher{% endblock %}
-{% block page_title %}Publisher & Distribución de Contenido{% endblock %}
+{% block title %}Publisher Studio — AutoClip Publisher V2{% endblock %}
+{% block page_title %}Estudio de Publicación{% endblock %}
+{% block page_subtitle %}Selecciona tu clip, personaliza metadatos por plataforma y revisa el preview 9:16 antes de enviar{% endblock %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto space-y-6">
+  <form id="publisherForm" class="publisher-studio">
 
-  <!-- Main Publisher Form -->
-  <form id="publisherForm" onsubmit="handlePublishSubmit(event)" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-    <!-- Left Column (8 cols): Content, Platforms & Metadata -->
-    <div class="lg:col-span-7 space-y-6">
-
-      <!-- Step 1: Media Selection -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center">
-            <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-[10px] mr-2">1</span>
-            Selección de Video
-          </h3>
-          <a href="/media-library" class="text-xs text-indigo-400 hover:text-indigo-300">Explorar biblioteca &rarr;</a>
-        </div>
-
+    <!-- PANE 1: Clip Library Explorer -->
+    <aside class="card" style="max-height:calc(100vh - 140px);display:flex;flex-direction:column;">
+      <div class="card-header">
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Video en Media Library</label>
-          <select id="mediaSelect" onchange="onMediaSelected(this)" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
-            <option value="">-- Selecciona un clip renderizado --</option>
-            {% for asset in assets %}
-              <option value="{{ asset.id }}" data-path="{{ asset.file_path }}" data-thumb="{{ asset.thumbnail_path or '' }}" data-title="{{ asset.title }}" data-duration="{{ asset.duration_sec or 0 }}">
-                {{ asset.title }} ({{ "%.1f"|format(asset.duration_sec or 0) }}s - {{ asset.width }}x{{ asset.height }})
-              </option>
-            {% endfor %}
-          </select>
-          <input type="hidden" id="selectedVideoPath" name="video_path">
-          <input type="hidden" id="selectedAssetId" name="asset_id">
+          <h2 class="card-title">1. Biblioteca</h2>
+          <p class="card-subtitle">{{ assets|length }} clips disponibles</p>
         </div>
       </div>
-
-      <!-- Step 2: Target Platforms -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center mb-3">
-          <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-[10px] mr-2">2</span>
-          Redes de Destino
-        </h3>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <!-- YouTube -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="youtube" checked class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-youtube text-red-500 text-base"></i>
-              <span class="text-xs font-medium text-slate-200">YouTube</span>
-            </div>
-          </label>
-
-          <!-- TikTok -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="tiktok" checked class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-tiktok text-cyan-400 text-base"></i>
-              <span class="text-xs font-medium text-slate-200">TikTok</span>
-            </div>
-          </label>
-
-          <!-- Instagram -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="instagram" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-instagram text-pink-500 text-base"></i>
-              <span class="text-xs font-medium text-slate-200">Instagram</span>
-            </div>
-          </label>
-
-          <!-- Facebook -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="facebook" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-facebook text-blue-500 text-base"></i>
-              <span class="text-xs font-medium text-slate-200">Facebook</span>
-            </div>
-          </label>
-
-          <!-- Threads -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="threads" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-threads text-white text-base"></i>
-              <span class="text-xs font-medium text-slate-200">Threads</span>
-            </div>
-          </label>
-
-          <!-- X -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="x" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-x-twitter text-white text-base"></i>
-              <span class="text-xs font-medium text-slate-200">X</span>
-            </div>
-          </label>
-
-          <!-- LinkedIn -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="linkedin" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-linkedin text-blue-400 text-base"></i>
-              <span class="text-xs font-medium text-slate-200">LinkedIn</span>
-            </div>
-          </label>
-
-          <!-- Telegram -->
-          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
-            <input type="checkbox" name="platforms" value="telegram" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
-            <div class="flex items-center space-x-2">
-              <i class="fa-brands fa-telegram text-sky-400 text-base"></i>
-              <span class="text-xs font-medium text-slate-200">Telegram</span>
-            </div>
-          </label>
-        </div>
+      <div style="padding:12px;border-bottom:1px solid var(--border-subtle);">
+        <input type="search" data-global-search placeholder="Buscar clip..." class="input" oninput="filterStudioClips(this.value)">
       </div>
+      <div id="studioClipList" style="padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;flex:1;">
+        {% if assets %}
+          {% for asset in assets %}
+            <button type="button"
+                    class="studio-clip-item"
+                    data-id="{{ asset.id }}"
+                    data-path="{{ asset.file_path }}"
+                    data-title="{{ asset.title }}"
+                    data-duration="{{ asset.duration_sec or 0 }}"
+                    data-res="{{ asset.width or 1080 }}x{{ asset.height or 1920 }}"
+                    onclick="selectStudioClip(this)"
+                    style="display:flex;gap:10px;padding:8px;border-radius:10px;background:var(--bg-input);border:1px solid {% if selected_asset and selected_asset.id == asset.id %}var(--accent-indigo){% else %}var(--border-subtle){% endif %};text-align:left;cursor:pointer;width:100%;">
+              <div style="width:44px;height:76px;border-radius:6px;background:#020409;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+                {% if asset.thumbnail_path %}
+                  <img src="/api/media/thumbnail/{{ asset.id }}" alt="" style="width:100%;height:100%;object-fit:cover;">
+                {% else %}
+                  <span class="text-xs text-muted">9:16</span>
+                {% endif %}
+              </div>
+              <div style="min-width:0;flex:1;display:flex;flex-direction:column;justify-content:space-between;">
+                <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+                  {{ asset.title }}
+                </div>
+                <div class="flex items-center justify-between text-xs text-muted font-mono">
+                  <span>{{ "%.1f"|format(asset.duration_sec or 0) }}s</span>
+                  <span>{{ asset.width or 1080 }}x{{ asset.height or 1920 }}</span>
+                </div>
+              </div>
+            </button>
+          {% endfor %}
+        {% else %}
+          <div class="empty-state" style="padding:24px 10px;">
+            <h4>Sin clips</h4>
+            <p>Sincroniza tus renders de AutoClip en Media Library.</p>
+            <a href="/media-library" class="btn btn-secondary btn-sm">Ir a Biblioteca</a>
+          </div>
+        {% endif %}
+      </div>
+      <input type="hidden" id="selectedAssetId" name="asset_id" value="{{ selected_asset.id if selected_asset else '' }}">
+      <input type="hidden" id="selectedVideoPath" name="video_path" value="{{ selected_asset.file_path if selected_asset else '' }}">
+    </aside>
 
-      <!-- Step 3: Platform Metadata Editor -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+    <!-- PANE 2: Platform Selector & Metadata Editor -->
+    <section class="flex-col gap-4">
+      <!-- Target Networks -->
+      <div class="card card-padded flex-col gap-3">
         <div class="flex items-center justify-between">
-          <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center">
-            <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-[10px] mr-2">3</span>
-            Metadatos & Optimización Viral
-          </h3>
-          <span class="text-[11px] text-indigo-400"><i class="fa-solid fa-sparkles mr-1"></i> Fórmula Viral AutoClip</span>
+          <h2 class="card-title">2. Redes de Destino</h2>
+          <a href="/connections" class="text-xs" style="color:var(--accent-indigo-hover);font-weight:600;">Gestionar conexiones &rarr;</a>
         </div>
 
-        <!-- Title Input with Character Counter -->
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label class="text-xs font-medium text-slate-300">Título / Titular (YouTube máx. 100 car.)</label>
-            <span id="titleCounter" class="text-[11px] text-slate-500">0 / 100</span>
+        <div class="grid-3" style="gap:10px;">
+          {% for pid, pname in [('youtube','YouTube'), ('tiktok','TikTok'), ('instagram','Instagram'), ('facebook','Facebook'), ('threads','Threads'), ('x','X (Twitter)')] %}
+            {% set cinfo = connections_map.get(pid) %}
+            {% set is_conn = cinfo and cinfo.status == 'CONNECTED' %}
+            <label style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-default);cursor:pointer;">
+              <span class="flex items-center gap-2">
+                <input type="checkbox" name="platforms" value="{{ pid }}" {% if pid == 'youtube' %}checked{% endif %} onchange="updateNetworkWarnings()">
+                {{ platform_icon(pid, 18) }}
+                <span style="font-weight:600;font-size:13px;">{{ pname }}</span>
+              </span>
+              <span class="status-dot {% if is_conn %}healthy{% else %}degraded{% endif %}" title="{{ 'Conectado' if is_conn else 'Sin autorización activa' }}"></span>
+            </label>
+          {% endfor %}
+        </div>
+
+        <div id="disconnectedWarning" class="banner banner-warn hidden" style="padding:10px 14px;font-size:12.5px;"></div>
+      </div>
+
+      <!-- Platform Metadata Editor -->
+      <div class="card card-padded flex-col gap-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h2 class="card-title">3. Editor de Metadatos</h2>
+          <div class="tabs" role="tablist">
+            <button type="button" class="tab-btn active" onclick="switchPreviewMode('youtube', this)">YouTube Shorts (100 car.)</button>
+            <button type="button" class="tab-btn" onclick="switchPreviewMode('tiktok', this)">TikTok</button>
           </div>
-          <input type="text" id="postTitle" name="title" required maxlength="100" oninput="updateCounter(this, 'titleCounter', 100)" placeholder="Gancho de alto impacto sin emojis para máxima retención..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
         </div>
 
-        <!-- Description Input -->
-        <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">Descripción / Copy</label>
-          <textarea id="postDescription" name="description" rows="3" placeholder="Contexto, llamada a la acción y enlaces clave..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"></textarea>
+        <div class="field">
+          <label for="postTitle" class="field-label">
+            <span>Título / Titular Principal</span>
+            <span id="titleCounter" class="font-mono text-xs text-muted">0 / 100</span>
+          </label>
+          <input type="text" id="postTitle" name="title" required maxlength="100"
+                 value="{{ selected_asset.title if selected_asset else '' }}"
+                 oninput="syncPreview()"
+                 placeholder="Escribe un título directo sin emojis para mayor retención..."
+                 class="input">
         </div>
 
-        <!-- Hashtags -->
-        <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">Hashtags (separados por espacio)</label>
-          <input type="text" id="postHashtags" name="hashtags" value="#Shorts #Podcast #Viral" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+        <div class="field">
+          <label for="postDescription" class="field-label">Descripción / Copy</label>
+          <textarea id="postDescription" name="description" oninput="syncPreview()" placeholder="Contexto del clip, llamada a la acción y enlaces..." class="textarea"></textarea>
         </div>
 
-        <!-- Visibility / Privacy Options -->
-        <div class="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">Privacidad por Defecto</label>
-            <select name="visibility" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
-              <option value="private" selected>Privado (Recomendado para verificación)</option>
-              <option value="unlisted">Oculto (Unlisted para revisión privada)</option>
-              <option value="public">Público (Autorizado desde Nov 2026 en YouTube)</option>
+        <div class="field">
+          <label for="postHashtags" class="field-label">Hashtags</label>
+          <input type="text" id="postHashtags" name="hashtags" value="#Shorts" oninput="syncPreview()" class="input">
+        </div>
+
+        <div class="grid-2" style="gap:14px;">
+          <div class="field">
+            <label for="postVisibility" class="field-label">Privacidad (Seguridad Nov 2026)</label>
+            <select id="postVisibility" name="visibility" class="select">
+              <option value="private" selected>Privado — Recomendado para verificación</option>
+              <option value="unlisted">Oculto (Unlisted)</option>
+              <option value="public">Público (requiere confirmación explícita)</option>
             </select>
+            <span class="field-hint">Por seguridad, YouTube envía siempre status.privacyStatus explícito.</span>
           </div>
 
-          <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">Programación Diferida (Opcional)</label>
-            <input type="datetime-local" id="scheduleTime" name="scheduled_time" class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
-            <span class="text-[10px] text-slate-500 block mt-0.5">Zona: America/Santo_Domingo (UTC-4)</span>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Right Column (5 cols): 9:16 Video Preview & Actions -->
-    <div class="lg:col-span-5 space-y-6">
-
-      <!-- Vertical 9:16 Preview Card -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center justify-between">
-          <span>Previsualización 9:16</span>
-          <span class="text-[10px] text-slate-500 font-normal">Formato Vertical</span>
-        </h3>
-
-        <!-- 9:16 Aspect Ratio Frame -->
-        <div class="relative w-full aspect-[9/16] max-w-[260px] mx-auto bg-black rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex items-center justify-center">
-          <video id="videoPreview" controls class="w-full h-full object-cover hidden"></video>
-          <img id="thumbnailPreview" class="w-full h-full object-cover hidden" alt="Miniatura">
-          <div id="previewPlaceholder" class="p-6 text-center text-slate-600">
-            <i class="fa-solid fa-mobile-screen text-4xl mb-2 block"></i>
-            <span class="text-xs">Selecciona un video para previsualizar</span>
-          </div>
-        </div>
-
-        <div id="mediaDetails" class="mt-4 p-3 bg-slate-950/80 rounded-lg border border-slate-800/80 text-[11px] text-slate-400 hidden">
-          <div class="flex justify-between py-0.5">
-            <span>Duración:</span>
-            <span id="detailDuration" class="text-slate-200 font-mono">-</span>
-          </div>
-          <div class="flex justify-between py-0.5">
-            <span>Ruta:</span>
-            <span id="detailPath" class="text-slate-200 truncate max-w-[150px]">-</span>
+          <div class="field">
+            <label for="scheduleTime" class="field-label">Programación (America/Santo_Domingo)</label>
+            <input type="datetime-local" id="scheduleTime" name="scheduled_time" class="input">
+            <span class="field-hint">Déjalo vacío para publicar o encolar de inmediato.</span>
           </div>
         </div>
       </div>
+    </section>
 
-      <!-- Submission Actions -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
-        <button type="submit" name="action" value="publish_now" class="w-full py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/30 transition flex items-center justify-center">
-          <i class="fa-solid fa-paper-plane mr-2"></i> Publicar / Encolar Inmediatamente
-        </button>
-
-        <button type="submit" name="action" value="schedule" class="w-full py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center justify-center">
-          <i class="fa-regular fa-clock mr-2 text-amber-400"></i> Programar para Fecha Futura
-        </button>
-
-        <button type="submit" name="action" value="draft" class="w-full py-2 px-4 rounded-lg bg-transparent hover:bg-slate-800/60 text-slate-400 text-xs font-medium transition flex items-center justify-center">
-          <i class="fa-regular fa-floppy-disk mr-1.5"></i> Guardar como Borrador
-        </button>
+    <!-- PANE 3: 9:16 Live Preview & Actions -->
+    <aside class="card card-padded flex-col gap-4 publisher-preview-col">
+      <div class="flex items-center justify-between">
+        <h2 class="card-title">4. Preview 9:16</h2>
+        <span id="previewPlatformBadge" class="badge badge-indigo">YouTube Shorts</span>
       </div>
 
-    </div>
+      <div class="phone-frame">
+        <video id="videoPreview" controls {% if not selected_asset %}class="hidden"{% endif %}
+               {% if selected_asset %}src="/api/media/asset/{{ selected_asset.id }}"{% endif %}></video>
+        <div id="previewPlaceholder" class="empty-state {% if selected_asset %}hidden{% endif %}" style="padding:20px;">
+          <p class="text-xs text-muted">Selecciona un clip en la biblioteca para previsualizar en 9:16</p>
+        </div>
+        <div class="phone-overlay">
+          <div id="previewOverlayTitle" style="font-size:12.5px;font-weight:700;color:#fff;margin-bottom:4px;">
+            {{ selected_asset.title if selected_asset else 'Título del Short' }}
+          </div>
+          <div id="previewOverlayTags" style="font-size:11px;color:#cbd5e1;">#Shorts</div>
+        </div>
+      </div>
 
+      <div id="qualityBar" style="padding:10px 12px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-subtle);font-size:12px;">
+        <div class="flex items-center justify-between">
+          <span class="text-muted">Resolución:</span>
+          <span id="detailRes" class="font-mono">{{ (selected_asset.width ~ 'x' ~ selected_asset.height) if selected_asset else '-' }}</span>
+        </div>
+        <div class="flex items-center justify-between" style="margin-top:4px;">
+          <span class="text-muted">Duración:</span>
+          <span id="detailDuration" class="font-mono">{{ ("%.1f"|format(selected_asset.duration_sec or 0) ~ 's') if selected_asset else '-' }}</span>
+        </div>
+      </div>
+
+      <div class="flex-col gap-2">
+        <button type="button" onclick="openConfirmModal('publish_now')" class="btn btn-primary" style="width:100%;">Publicar Ahora</button>
+        <button type="button" onclick="openConfirmModal('schedule')" class="btn btn-secondary" style="width:100%;">Programar Publicación</button>
+        <button type="button" onclick="openConfirmModal('draft')" class="btn btn-ghost" style="width:100%;">Guardar como Borrador</button>
+      </div>
+    </aside>
   </form>
 
-</div>
+  <!-- Final Pre-Send Confirmation Modal -->
+  <div id="confirmPublishModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="card-title">Confirmar Envío de Publicación</h3>
+        <button type="button" onclick="closeConfirmModal()" class="btn btn-ghost btn-icon" aria-label="Cerrar">&times;</button>
+      </div>
+      <div id="confirmSummaryBody" class="modal-body text-sm"></div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeConfirmModal()" class="btn btn-secondary btn-sm">Volver al Editor</button>
+        <button type="button" id="confirmSendBtn" onclick="executeDispatch()" class="btn btn-primary btn-sm">Confirmar y Enviar</button>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-function onMediaSelected(select) {
-  const opt = select.options[select.selectedIndex];
-  if (!opt || !opt.value) {
-    document.getElementById('videoPreview').classList.add('hidden');
-    document.getElementById('thumbnailPreview').classList.add('hidden');
-    document.getElementById('previewPlaceholder').classList.remove('hidden');
-    document.getElementById('mediaDetails').classList.add('hidden');
-    return;
-  }
+  const CONNECTED_STATUS = {
+    {% for pid, c in connections_map.items() %}
+      {{ pid|tojson }}: {{ (c.status == 'CONNECTED')|tojson }},
+    {% endfor %}
+  };
+  let pendingAction = 'publish_now';
 
-  const assetId = opt.value;
-  const filePath = opt.getAttribute('data-path');
-  const thumbPath = opt.getAttribute('data-thumb');
-  const title = opt.getAttribute('data-title');
-  const duration = parseFloat(opt.getAttribute('data-duration') || '0');
-
-  document.getElementById('selectedAssetId').value = assetId;
-  document.getElementById('selectedVideoPath').value = filePath;
-
-  if (!document.getElementById('postTitle').value) {
-    document.getElementById('postTitle').value = title;
-    updateCounter(document.getElementById('postTitle'), 'titleCounter', 100);
-  }
-
-  // Previsualización de video o miniatura
-  const video = document.getElementById('videoPreview');
-  const thumb = document.getElementById('thumbnailPreview');
-  const placeholder = document.getElementById('previewPlaceholder');
-
-  placeholder.classList.add('hidden');
-  video.src = `/api/media/asset/${assetId}`;
-  video.classList.remove('hidden');
-
-  document.getElementById('mediaDetails').classList.remove('hidden');
-  document.getElementById('detailDuration').innerText = duration.toFixed(1) + ' seg';
-  document.getElementById('detailPath').innerText = filePath.split('\\').pop().split('/').pop();
-}
-
-function updateCounter(input, counterId, max) {
-  const count = input.value.length;
-  const counter = document.getElementById(counterId);
-  counter.innerText = `${count} / ${max}`;
-  if (count >= max) {
-    counter.classList.add('text-rose-400');
-  } else {
-    counter.classList.remove('text-rose-400');
-  }
-}
-
-async function handlePublishSubmit(e) {
-  e.preventDefault();
-  const form = document.getElementById('publisherForm');
-  const formData = new FormData(form);
-
-  const action = e.submitter ? e.submitter.value : 'publish_now';
-  const assetId = formData.get('asset_id');
-  const videoPath = formData.get('video_path');
-  const title = formData.get('title');
-  const description = formData.get('description');
-  const hashtags = formData.get('hashtags');
-  const visibility = formData.get('visibility');
-  const scheduledTime = formData.get('scheduled_time');
-
-  const platforms = [];
-  document.querySelectorAll('input[name="platforms"]:checked').forEach(cb => {
-    platforms.push(cb.value);
-  });
-
-  if (platforms.length === 0) {
-    alert('Por favor selecciona al menos una plataforma de destino.');
-    return;
-  }
-
-  if (!videoPath) {
-    alert('Por favor selecciona un video de la biblioteca.');
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/publisher/dispatch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        asset_id: assetId,
-        video_path: videoPath,
-        platforms: platforms,
-        title: title,
-        description: description,
-        hashtags: hashtags,
-        visibility: visibility,
-        scheduled_time: scheduledTime,
-        action: action
-      })
+  function filterStudioClips(q) {
+    const query = (q || '').trim().toLowerCase();
+    document.querySelectorAll('.studio-clip-item').forEach(el => {
+      const title = (el.dataset.title || '').toLowerCase();
+      el.classList.toggle('hidden', query && !title.includes(query));
     });
-
-    const data = await res.json();
-    if (data.ok) {
-      alert(`Publicación procesada correctamente (${data.jobs_created} trabajos generados).`);
-      window.location.href = '/queue';
-    } else {
-      alert('Error al despachar publicación: ' + (data.error || 'Desconocido'));
-    }
-  } catch (err) {
-    alert('Excepción al conectar con el servidor: ' + err);
   }
-}
+
+  function selectStudioClip(btn) {
+    document.querySelectorAll('.studio-clip-item').forEach(b => b.style.borderColor = 'var(--border-subtle)');
+    btn.style.borderColor = 'var(--accent-indigo)';
+    document.getElementById('selectedAssetId').value = btn.dataset.id;
+    document.getElementById('selectedVideoPath').value = btn.dataset.path;
+    const video = document.getElementById('videoPreview');
+    video.src = `/api/media/asset/${btn.dataset.id}`;
+    video.classList.remove('hidden');
+    document.getElementById('previewPlaceholder').classList.add('hidden');
+    document.getElementById('detailRes').textContent = btn.dataset.res;
+    document.getElementById('detailDuration').textContent = parseFloat(btn.dataset.duration || '0').toFixed(1) + 's';
+    const titleEl = document.getElementById('postTitle');
+    if (!titleEl.value.trim()) titleEl.value = btn.dataset.title;
+    syncPreview();
+  }
+
+  function switchPreviewMode(mode, btn) {
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('previewPlatformBadge').textContent = mode === 'youtube' ? 'YouTube Shorts' : 'TikTok Feed';
+  }
+
+  function syncPreview() {
+    const title = document.getElementById('postTitle').value;
+    const tags = document.getElementById('postHashtags').value;
+    document.getElementById('titleCounter').textContent = `${title.length} / 100`;
+    document.getElementById('previewOverlayTitle').textContent = title || 'Título del Short';
+    document.getElementById('previewOverlayTags').textContent = tags || '#Shorts';
+  }
+
+  function getSelectedPlatforms() {
+    return Array.from(document.querySelectorAll('input[name="platforms"]:checked')).map(c => c.value);
+  }
+
+  function updateNetworkWarnings() {
+    const selected = getSelectedPlatforms();
+    const disconnected = selected.filter(p => !CONNECTED_STATUS[p]);
+    const box = document.getElementById('disconnectedWarning');
+    if (disconnected.length > 0) {
+      box.classList.remove('hidden');
+      box.innerHTML = `<span><strong>Atención:</strong> ${disconnected.join(', ')} no tiene conexión verificada todavía. El trabajo quedará en cola/requiere acción hasta autorizar en <a href="/connections" style="text-decoration:underline;">Connected Apps</a>.</span>`;
+    } else {
+      box.classList.add('hidden');
+    }
+  }
+
+  function openConfirmModal(action) {
+    pendingAction = action;
+    const platforms = getSelectedPlatforms();
+    const videoPath = document.getElementById('selectedVideoPath').value;
+    const title = document.getElementById('postTitle').value.trim();
+    const visibility = document.getElementById('postVisibility').value;
+    const sched = document.getElementById('scheduleTime').value;
+
+    if (!videoPath) { window.showToast('Selecciona un clip de la biblioteca primero.', 'warn'); return; }
+    if (platforms.length === 0) { window.showToast('Selecciona al menos una red de destino.', 'warn'); return; }
+    if (!title) { window.showToast('Escribe un título antes de continuar.', 'warn'); return; }
+    if (action === 'schedule' && !sched) { window.showToast('Selecciona fecha y hora para programar.', 'warn'); return; }
+
+    const actionLabels = { publish_now: 'Publicar inmediatamente', schedule: 'Programar para ' + sched, draft: 'Guardar como borrador' };
+    document.getElementById('confirmSummaryBody').innerHTML = `
+      <div class="flex-col gap-2">
+        <div><strong>Acción:</strong> ${actionLabels[action]}</div>
+        <div><strong>Título:</strong> ${title}</div>
+        <div><strong>Redes:</strong> ${platforms.join(', ')}</div>
+        <div><strong>Privacidad:</strong> <span class="badge ${visibility === 'public' ? 'badge-warn' : 'badge-success'}">${visibility.toUpperCase()}</span></div>
+      </div>`;
+    document.getElementById('confirmPublishModal').classList.add('open');
+  }
+
+  function closeConfirmModal() {
+    document.getElementById('confirmPublishModal').classList.remove('open');
+  }
+
+  async function executeDispatch() {
+    const btn = document.getElementById('confirmSendBtn');
+    btn.disabled = true;
+    try {
+      const res = await window.clipflowFetch('/api/publisher/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asset_id: document.getElementById('selectedAssetId').value || null,
+          video_path: document.getElementById('selectedVideoPath').value,
+          platforms: getSelectedPlatforms(),
+          title: document.getElementById('postTitle').value.trim(),
+          description: document.getElementById('postDescription').value.trim(),
+          hashtags: document.getElementById('postHashtags').value.trim(),
+          visibility: document.getElementById('postVisibility').value,
+          scheduled_time: document.getElementById('scheduleTime').value || null,
+          action: pendingAction
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        window.showToast(`Listo: ${data.jobs_created} trabajo(s) registrados.`, 'success');
+        window.location.href = '/queue';
+      } else {
+        window.showToast(data.detail || 'Error al despachar publicación', 'error');
+      }
+    } catch (err) {
+      window.showToast('Error de red: ' + err, 'error');
+    } finally {
+      btn.disabled = false;
+      closeConfirmModal();
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    syncPreview();
+    updateNetworkWarnings();
+  });
 </script>
 {% endblock %}

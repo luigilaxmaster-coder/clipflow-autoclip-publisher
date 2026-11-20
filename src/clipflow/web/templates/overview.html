@@ -1,218 +1,276 @@
 {% extends "base.html" %}
+{% from "_icons.html" import platform_icon %}
 
-{% block title %}Overview — AutoClip Publisher{% endblock %}
-{% block page_title %}Panel Central & Actividad{% endblock %}
+{% block title %}Overview — AutoClip Publisher V2{% endblock %}
+{% block page_title %}Command Center{% endblock %}
+{% block page_subtitle %}Resumen visual de clips, conexiones, colas y salud real del entorno{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-
-  <!-- Metric Summary Cards -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-    <!-- Card 1: Clips en Biblioteca -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 relative overflow-hidden shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Clips en Biblioteca</span>
-        <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-          <i class="fa-solid fa-photo-film"></i>
+  {% if stats.connected_apps_count == 0 %}
+    <div class="banner banner-indigo">
+      <div class="flex-col gap-2" style="flex:1;min-width:240px;">
+        <div class="flex items-center gap-2">
+          <span class="badge badge-indigo">Primeros Pasos</span>
+          <strong style="font-size:14px;">Conecta tu primer canal oficial para empezar a publicar</strong>
+        </div>
+        <div class="stepper">
+          <span class="step-pill active">1. Conectar YouTube OAuth</span>
+          <span class="step-pill">2. Sincronizar Clips AutoClip</span>
+          <span class="step-pill">3. Publicar Short Privado de Prueba</span>
         </div>
       </div>
-      <div class="text-2xl font-bold text-white">{{ stats.renders_count }}</div>
-      <div class="text-xs text-slate-500 mt-1 flex items-center">
-        <span class="text-indigo-400 font-medium mr-1.5"><i class="fa-solid fa-scissors"></i> {{ stats.projects_count }}</span> proyectos AutoClip procesados
-      </div>
+      <a href="/connections" class="btn btn-primary">Configurar YouTube</a>
     </div>
+  {% endif %}
 
-    <!-- Card 2: Cuentas Conectadas -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 relative overflow-hidden shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cuentas Conectadas</span>
-        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-          <i class="fa-solid fa-plug"></i>
+  <!-- 5 Core KPI Tiles -->
+  <section class="kpi-grid" aria-label="Indicadores principales">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Clips Generados</span>
+        <div class="kpi-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m10 9 5 3-5 3V9z"/></svg>
         </div>
       </div>
-      <div class="text-2xl font-bold text-white">{{ stats.connected_apps_count }}</div>
-      <div class="text-xs text-slate-500 mt-1">
-        de 18 proveedores disponibles
-      </div>
+      <div class="kpi-value">{{ stats.renders_count }}</div>
+      <div class="kpi-meta">{{ stats.projects_count }} proyectos AutoClip</div>
     </div>
 
-    <!-- Card 3: En Cola & Programados -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 relative overflow-hidden shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">En Cola / Programados</span>
-        <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-          <i class="fa-solid fa-clock"></i>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Publicaciones Exitosas</span>
+        <div class="kpi-icon success">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg>
         </div>
       </div>
-      <div class="text-2xl font-bold text-white">{{ stats.queued_count }}</div>
-      <div class="text-xs text-slate-500 mt-1">
-        Zona horaria: America/Santo_Domingo
-      </div>
+      <div class="kpi-value">{{ stats.published_count }}</div>
+      <div class="kpi-meta">Confirmadas por proveedor</div>
     </div>
 
-    <!-- Card 4: Publicaciones Exitosas -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 relative overflow-hidden shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Publicados con Éxito</span>
-        <div class="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-          <i class="fa-solid fa-circle-check"></i>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Pendientes / Programadas</span>
+        <div class="kpi-icon warn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         </div>
       </div>
-      <div class="text-2xl font-bold text-white">{{ stats.published_count }}</div>
-      <div class="text-xs text-slate-500 mt-1">
-        {% if stats.failed_count > 0 %}
-          <span class="text-rose-400"><i class="fa-solid fa-triangle-exclamation"></i> {{ stats.failed_count }} con atención requerida</span>
-        {% else %}
-          <span class="text-emerald-400"><i class="fa-solid fa-check"></i> 0 errores pendientes</span>
-        {% endif %}
-      </div>
+      <div class="kpi-value">{{ stats.queued_count }}</div>
+      <div class="kpi-meta">America/Santo_Domingo (UTC-4)</div>
     </div>
-  </div>
 
-  <!-- Quick Actions & Status Banner -->
-  <div class="bg-gradient-to-r from-indigo-950/60 to-slate-900 border border-indigo-900/40 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
-    <div class="flex items-center space-x-4">
-      <div class="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xl flex-shrink-0">
-        <i class="fa-solid fa-sliders"></i>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">Cuentas Conectadas</span>
+        <div class="kpi-icon info">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
+        </div>
       </div>
-      <div>
-        <h3 class="font-semibold text-white text-base">Pipeline de Distribución Privado</h3>
-        <p class="text-xs text-slate-400 mt-0.5">Control directo de publicaciones en YouTube Shorts, TikTok, Instagram y más con procesamiento local FFmpeg.</p>
+      <div class="kpi-value">{{ stats.connected_apps_count }}</div>
+      <div class="kpi-meta">de 18 conectores disponibles</div>
+    </div>
+
+    <a href="/queue" class="kpi-card" style="text-decoration:none;">
+      <div class="kpi-top">
+        <span class="kpi-label">Atención Requerida</span>
+        <div class="kpi-icon {% if stats.failed_count > 0 %}danger{% else %}success{% endif %}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+      </div>
+      <div class="kpi-value">{{ stats.failed_count }}</div>
+      <div class="kpi-meta">{% if stats.failed_count > 0 %}Revisar errores en Queue{% else %}Sin incidencias activas{% endif %}</div>
+    </a>
+  </section>
+
+  <!-- Interactive Charts Row -->
+  <section class="grid-12">
+    <div class="card col-span-8">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Actividad de Publicaciones</h2>
+          <p class="card-subtitle">Trabajos registrados en base de datos local por fecha</p>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab-btn active" onclick="renderOverviewCharts(7, this)">7 días</button>
+          <button type="button" class="tab-btn" onclick="renderOverviewCharts(14, this)">14 días</button>
+        </div>
+      </div>
+      <div class="card-padded">
+        <div id="overviewTimelineChart" class="chart-box"></div>
       </div>
     </div>
-    <div class="flex flex-wrap items-center gap-2">
-      <form action="/api/media/sync" method="post" class="inline">
-        <button type="submit" class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition">
-          <i class="fa-solid fa-arrows-rotate mr-1.5"></i> Sincronizar Clips AutoClip
-        </button>
+
+    <div class="card col-span-4">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Distribución por Plataforma</h2>
+          <p class="card-subtitle">Proporción real de trabajos creados</p>
+        </div>
+      </div>
+      <div class="card-padded">
+        <div id="overviewPlatformChart" class="chart-box"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Real Engine Health & Quick Actions Strip -->
+  <section class="banner">
+    <div class="flex items-center flex-wrap gap-3">
+      <span class="badge {% if health.database_connected %}badge-success{% else %}badge-danger{% endif %}">
+        <span class="status-dot {% if health.database_connected %}healthy{% else %}down{% endif %}"></span>
+        SQLite: {{ 'Operativa' if health.database_connected else 'Error' }}
+      </span>
+      <span class="badge {% if health.ffmpeg_available %}badge-success{% else %}badge-danger{% endif %}">
+        <span class="status-dot {% if health.ffmpeg_available %}healthy{% else %}down{% endif %}"></span>
+        FFmpeg Local: {{ 'Disponible' if health.ffmpeg_available else 'No detectado' }}
+      </span>
+      <span class="badge {% if health.postiz_online %}badge-success{% elif health.postiz_configured %}badge-warn{% else %}{% endif %}">
+        <span class="status-dot {% if health.postiz_online %}healthy{% elif health.postiz_configured %}degraded{% endif %}"></span>
+        Postiz: {{ 'En línea' if health.postiz_online else ('Sin respuesta' if health.postiz_configured else 'No configurado') }}
+      </span>
+    </div>
+    <div class="flex items-center flex-wrap gap-2">
+      <form action="/api/media/sync" method="post" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Sincronizar Clips AutoClip</button>
       </form>
-      <a href="/publisher" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-md shadow-indigo-600/20 transition">
-        <i class="fa-solid fa-share-nodes mr-1.5"></i> Nueva Publicación Multired
-      </a>
+      <a href="/calendar" class="btn btn-secondary btn-sm">Ver Calendario</a>
+      <a href="/publisher" class="btn btn-primary btn-sm">Abrir Studio</a>
     </div>
-  </div>
+  </section>
 
-  <!-- Two-Column Layout: Recent Activity & AutoClip Projects -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    
-    <!-- Col 1 & 2: Actividad Reciente de Publicación -->
-    <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-        <h3 class="font-semibold text-sm text-white flex items-center">
-          <i class="fa-solid fa-list-check text-indigo-400 mr-2"></i> Trabajos de Publicación Recientes
-        </h3>
-        <a href="/queue" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Ver cola completa &rarr;</a>
+  <!-- Recent Activity + Upcoming + AutoClip Projects -->
+  <section class="grid-12">
+    <div class="card col-span-8">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Actividad Reciente de Publicación</h2>
+          <p class="card-subtitle">Últimos trabajos registrados con estado verificado</p>
+        </div>
+        <a href="/queue" class="text-sm" style="color:var(--accent-indigo-hover);font-weight:600;">Ver cola completa &rarr;</a>
       </div>
-
-      <div class="divide-y divide-slate-800/60">
-        {% if recent_jobs %}
-          {% for job in recent_jobs %}
-            <div class="p-4 flex items-center justify-between hover:bg-slate-800/30 transition">
-              <div class="flex items-center space-x-3 min-w-0">
-                <div class="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center text-slate-300 flex-shrink-0">
-                  {% if job.post_draft and job.post_draft.platform == 'youtube' %}
-                    <i class="fa-brands fa-youtube text-red-500 text-lg"></i>
-                  {% elif job.post_draft and job.post_draft.platform == 'tiktok' %}
-                    <i class="fa-brands fa-tiktok text-cyan-400 text-base"></i>
-                  {% elif job.post_draft and job.post_draft.platform == 'instagram' %}
-                    <i class="fa-brands fa-instagram text-pink-500 text-lg"></i>
-                  {% else %}
-                    <i class="fa-solid fa-share text-indigo-400"></i>
-                  {% endif %}
-                </div>
-                <div class="min-w-0">
-                  <div class="text-sm font-medium text-white truncate max-w-md">
-                    {{ job.post_draft.title if job.post_draft else 'Publicación ID ' ~ job.id[:8] }}
-                  </div>
-                  <div class="text-xs text-slate-500 flex items-center space-x-2 mt-0.5">
-                    <span>{{ job.post_draft.platform.upper() if job.post_draft else 'DESCONOCIDO' }}</span>
-                    <span>&middot;</span>
-                    <span>Creado: {{ job.created_at.strftime('%d/%m %H:%M') if job.created_at else '' }}</span>
-                    {% if job.scheduled_at_utc %}
-                      <span>&middot;</span>
-                      <span class="text-amber-400"><i class="fa-regular fa-clock mr-1"></i> Prog: {{ job.scheduled_at_utc.strftime('%d/%m %H:%M UTC') }}</span>
+      {% if recent_jobs %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Plataforma</th>
+                <th>Título</th>
+                <th>Estado</th>
+                <th>Fecha</th>
+                <th>Enlace</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for job in recent_jobs %}
+                <tr>
+                  <td>
+                    <div class="flex items-center gap-2">
+                      {{ platform_icon(job.post_draft.platform if job.post_draft else '', 18) }}
+                      <span style="text-transform:capitalize;font-weight:600;color:var(--text-primary);">
+                        {{ job.post_draft.platform if job.post_draft else 'N/A' }}
+                      </span>
+                    </div>
+                  </td>
+                  <td style="max-width:260px;" class="truncate">{{ job.post_draft.title if job.post_draft else 'Trabajo ' ~ job.id[:8] }}</td>
+                  <td>
+                    {% if job.status == 'PUBLISHED' %}
+                      <span class="badge badge-success">Publicado</span>
+                    {% elif job.status in ['QUEUED', 'SCHEDULED'] %}
+                      <span class="badge badge-indigo">{{ job.status }}</span>
+                    {% elif job.status in ['UPLOADING', 'PROCESSING', 'REMOTE_PROCESSING'] %}
+                      <span class="badge badge-info">{{ job.status }}</span>
+                    {% elif job.status in ['FAILED', 'REQUIRES_ACTION', 'ACTION_REQUIRED'] %}
+                      <span class="badge badge-danger">{{ job.status }}</span>
+                    {% else %}
+                      <span class="badge">{{ job.status }}</span>
                     {% endif %}
-                  </div>
-                </div>
-              </div>
-
-              <div class="flex items-center space-x-3">
-                <!-- Status Badge -->
-                {% if job.status == 'PUBLISHED' %}
-                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    <i class="fa-solid fa-check mr-1"></i> Publicado
-                  </span>
-                {% elif job.status == 'QUEUED' %}
-                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    <i class="fa-solid fa-clock mr-1"></i> En Cola
-                  </span>
-                {% elif job.status == 'SCHEDULED' %}
-                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-                    <i class="fa-regular fa-calendar mr-1"></i> Programado
-                  </span>
-                {% elif job.status in ['FAILED', 'ACTION_REQUIRED', 'REQUIRES_ACTION'] %}
-                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                    <i class="fa-solid fa-triangle-exclamation mr-1"></i> Acción Req.
-                  </span>
-                {% else %}
-                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-500/15 text-slate-400 border border-slate-500/30">
-                    {{ job.status }}
-                  </span>
-                {% endif %}
-
-                {% if job.remote_url %}
-                  <a href="{{ job.remote_url }}" target="_blank" class="text-indigo-400 hover:text-indigo-300 text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700">
-                    <i class="fa-solid fa-arrow-up-right-from-square"></i>
-                  </a>
-                {% endif %}
-              </div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="p-8 text-center text-slate-500 text-xs">
-            <i class="fa-solid fa-inbox text-3xl mb-2 text-slate-600 block"></i>
-            No hay publicaciones en la cola todavía. Ve a <a href="/publisher" class="text-indigo-400 hover:underline">Publisher</a> para crear la primera.
+                  </td>
+                  <td class="font-mono text-xs text-muted">{{ job.created_at.strftime('%d/%m %H:%M') if job.created_at else '-' }}</td>
+                  <td>
+                    {% if job.remote_url %}
+                      <a href="{{ job.remote_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Abrir</a>
+                    {% else %}
+                      <span class="text-xs text-muted">-</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div class="empty-state-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
           </div>
-        {% endif %}
-      </div>
+          <h4>Sin publicaciones registradas todavía</h4>
+          <p>Sincroniza tus clips desde AutoClip y abre el Publisher para crear tu primera publicación privada de verificación.</p>
+          <a href="/publisher" class="btn btn-primary btn-sm" style="margin-top:6px;">Ir al Publisher</a>
+        </div>
+      {% endif %}
     </div>
 
-    <!-- Col 3: Proyectos de AutoClip Recientes -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col">
-      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-        <h3 class="font-semibold text-sm text-white flex items-center">
-          <i class="fa-solid fa-scissors text-indigo-400 mr-2"></i> Proyectos de Producción AutoClip
-        </h3>
-        <a href="/media-library" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Biblioteca &rarr;</a>
+    <div class="card col-span-4">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Proyectos de Producción AutoClip</h2>
+          <p class="card-subtitle">Cortes verticales generados en local</p>
+        </div>
+        <a href="/media-library" class="text-sm" style="color:var(--accent-indigo-hover);font-weight:600;">Biblioteca &rarr;</a>
       </div>
-
-      <div class="divide-y divide-slate-800/60 flex-1 overflow-y-auto">
+      <div class="card-padded flex-col gap-3">
         {% if projects %}
           {% for p in projects[:6] %}
-            <div class="p-4 hover:bg-slate-800/30 transition">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-xs font-medium text-slate-200 truncate max-w-[180px]">
+            <a href="/projects/{{ p.id }}" style="padding:12px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-subtle);display:block;">
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate" style="font-weight:600;font-size:13px;color:var(--text-primary);">
                   {{ p.source.local_path.split('\\')[-1].split('/')[-1] if p.source else 'Proyecto ' ~ p.id[:8] }}
                 </span>
-                <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  {{ p.workflow_status }}
-                </span>
+                <span class="badge">{{ p.workflow_status }}</span>
               </div>
-              <div class="text-[11px] text-slate-500 flex items-center justify-between mt-2">
-                <span>{{ p.renders|length }} renders verticales</span>
+              <div class="flex items-center justify-between text-xs text-muted" style="margin-top:6px;">
+                <span>{{ p.renders|length }} renders 9:16</span>
                 <span>{{ p.created_at.strftime('%d/%m/%Y') if p.created_at else '' }}</span>
               </div>
-            </div>
+            </a>
           {% endfor %}
         {% else %}
-          <div class="p-8 text-center text-slate-500 text-xs">
-            No se han registrado proyectos en AutoClip aún.
+          <div class="empty-state" style="padding:24px 12px;">
+            <h4>Sin proyectos AutoClip</h4>
+            <p>Usa <code>clipflow create --source video.mp4</code> para generar clips verticales.</p>
           </div>
         {% endif %}
       </div>
     </div>
+  </section>
+{% endblock %}
 
-  </div>
+{% block scripts %}
+<script>
+  const DAILY_DATA = {{ daily_counts | tojson }};
+  const PLATFORM_DATA = {{ platform_breakdown | tojson }};
 
-</div>
+  function renderOverviewCharts(days, btn) {
+    if (btn) {
+      btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    const keys = Object.keys(DAILY_DATA).sort().slice(-days);
+    const vals = keys.map(k => DAILY_DATA[k]);
+    window.renderBarChart(
+      'overviewTimelineChart',
+      keys,
+      vals,
+      'Aún no hay publicaciones en este periodo. Cuando publiques o programes clips aparecerán aquí.'
+    );
+    const entries = Object.entries(PLATFORM_DATA).map(([k, v]) => ({ label: k, value: v }));
+    window.renderDonutChart(
+      'overviewPlatformChart',
+      entries,
+      'Sin publicaciones distribuidas por red todavía.'
+    );
+  }
+
+  document.addEventListener('DOMContentLoaded', () => renderOverviewCharts(7));
+</script>
 {% endblock %}

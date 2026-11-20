@@ -1,93 +1,106 @@
 {% extends "base.html" %}
 
-{% block title %}Automations — AutoClip Publisher{% endblock %}
+{% block title %}Automations — AutoClip Publisher V2{% endblock %}
 {% block page_title %}Flujos & Reglas Automáticas{% endblock %}
+{% block page_subtitle %}Diagramas legibles que explican cuándo, bajo qué condición y qué ejecuta cada regla del pipeline{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-
-  <!-- Header Banner -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
-    <div>
-      <h3 class="font-semibold text-sm text-white flex items-center">
-        <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-2"></i> Motor de Automatización AutoClip
-      </h3>
-      <p class="text-xs text-slate-400 mt-0.5">
-        Define disparadores y acciones para convertir cortes sin intervención manual: QA automático, programación inteligente y metadatos virales.
-      </p>
-    </div>
-  </div>
-
-  <!-- Rules Grid -->
-  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-
-    <!-- Rule 1: Auto-Approve on QA Passed -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+  <!-- Flow 1: Auto-QA Validation -->
+  <section class="card card-padded flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
       <div>
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">
-            <i class="fa-solid fa-clipboard-check"></i>
-          </span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            ACTIVA
-          </span>
-        </div>
-        <h4 class="font-bold text-sm text-white mb-1">Aprobación Automática MediaQA</h4>
-        <p class="text-xs text-slate-400 leading-relaxed mb-4">
-          Si un render vertical 9:16 cumple 100% de las reglas FFprobe (duración 15-60s, H.264/AAC, sin corrupción), pasa automáticamente a estado <code>READY</code> para publicación.
-        </p>
+        <h2 class="card-title">1. Control de Calidad Estricto (MediaQA)</h2>
+        <p class="card-subtitle">Valida cada render MP4 generado por AutoClip antes de permitir su publicación</p>
       </div>
-      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-        <span>Disparador: Render completado</span>
-        <span class="text-emerald-400 font-medium">Auto-Aprobar</span>
+      <span class="badge badge-success">Regla Activa</span>
+    </div>
+    <div class="flow-chain">
+      <div class="flow-node">
+        <div class="flow-node-tag">1. Disparador</div>
+        <strong>Render finalizado</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">AutoClip completa un corte vertical 9:16</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">2. Condición</div>
+        <strong>FFprobe 9:16 + H.264/AAC</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Archivo íntegro, audio válido y duración permitida</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">3. Acción</div>
+        <strong>Indexar en Biblioteca</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Genera miniatura FFmpeg local sin duplicar el video</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">4. Resultado</div>
+        <strong>Listo para Publisher</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Disponible con badge QA: PASSED para envío</div>
       </div>
     </div>
+  </section>
 
-    <!-- Rule 2: Optimal Time Scheduling -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+  <!-- Flow 2: Optimal Scheduling -->
+  <section class="card card-padded flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
       <div>
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center text-sm">
-            <i class="fa-solid fa-calendar-check"></i>
-          </span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-            PROGRAMADOR
-          </span>
-        </div>
-        <h4 class="font-bold text-sm text-white mb-1">Ventanas de Mayor Tracción</h4>
-        <p class="text-xs text-slate-400 leading-relaxed mb-4">
-          Distribuye los clips listos en los 3 horarios de mayor retención de YouTube Shorts: <strong>10:00 AM</strong>, <strong>03:00 PM</strong> y <strong>08:00 PM</strong> (hora Santo Domingo UTC-4).
-        </p>
+        <h2 class="card-title">2. Programación Inteligente por Zona Horaria</h2>
+        <p class="card-subtitle">Normaliza horarios de America/Santo_Domingo (UTC-4) a UTC persistente en SQLite</p>
       </div>
-      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-        <span>Cadencia: Máx 3 clips/día</span>
-        <span class="text-indigo-400 font-medium">Reparto Inteligente</span>
+      <span class="badge badge-indigo">Worker Supervisado</span>
+    </div>
+    <div class="flow-chain">
+      <div class="flow-node">
+        <div class="flow-node-tag">1. Disparador</div>
+        <strong>Borrador aprobado</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Usuario selecciona horario en Publisher o Calendar</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">2. Condición</div>
+        <strong>Clave de Idempotencia única</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Previene duplicados ante reinicios o doble clic</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">3. Acción</div>
+        <strong>Subida resumible por bloques</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Worker despacha al vencer scheduled_at_utc</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">4. Resultado</div>
+        <strong>ID y URL confirmados</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Se registra video_id real y se verifica por API</div>
       </div>
     </div>
+  </section>
 
-    <!-- Rule 3: Viral Formula Titles -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+  <!-- Flow 3: Auth Protection & Backoff -->
+  <section class="card card-padded flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
       <div>
-        <div class="flex items-center justify-between mb-3">
-          <span class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-sm">
-            <i class="fa-solid fa-bolt"></i>
-          </span>
-          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            ACTIVA
-          </span>
-        </div>
-        <h4 class="font-bold text-sm text-white mb-1">Fórmula Ganadora de Metadatos</h4>
-        <p class="text-xs text-slate-400 leading-relaxed mb-4">
-          Genera titulares sin emojis, estructurados con disparadores de alta curiosidad derivados del rendimiento real de los videos anteriores.
-        </p>
+        <h2 class="card-title">3. Pausa Preventiva ante Fallos de Autorización</h2>
+        <p class="card-subtitle">Evita quemar cuota o lanzar reintentos fallidos si expira un token OAuth</p>
       </div>
-      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-        <span>Módulo: metadata.py</span>
-        <span class="text-indigo-400 font-medium">Retroalimentado</span>
+      <span class="badge badge-success">Protección Activa</span>
+    </div>
+    <div class="flow-chain">
+      <div class="flow-node">
+        <div class="flow-node-tag">1. Disparador</div>
+        <strong>Error HTTP 401 / Token Expirado</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Detectado durante la subida o verificación</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">2. Condición</div>
+        <strong>Renovación automática falla</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">refresh_token revocado o permisos insuficientes</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">3. Acción</div>
+        <strong>Marcar conexión EXPIRED</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Pausa trabajos pendientes de esa plataforma</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">4. Resultado</div>
+        <strong>Estado REQUIRES_ACTION</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Alerta clara en Overview y Queue para re-autorizar</div>
       </div>
     </div>
-
-  </div>
-
-</div>
+  </section>
 {% endblock %}

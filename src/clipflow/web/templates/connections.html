@@ -1,359 +1,330 @@
 {% extends "base.html" %}
+{% from "_icons.html" import platform_icon %}
 
-{% block title %}Connected Apps Hub — AutoClip Publisher{% endblock %}
+{% block title %}Connected Apps — AutoClip Publisher V2{% endblock %}
 {% block page_title %}Connected Apps Hub{% endblock %}
+{% block page_subtitle %}Autorización oficial OAuth 2.0, cifrado local Fernet y diagnósticos en vivo{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-
-  <!-- Hub Header & Status Banner -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-    <div>
-      <h2 class="text-base font-bold text-white flex items-center">
-        <i class="fa-solid fa-network-wired text-indigo-400 mr-2.5"></i> Centro Modular de Proveedores & Almacenamiento
-      </h2>
-      <p class="text-xs text-slate-400 mt-1 max-w-2xl">
-        Conecta tus cuentas oficiales con OAuth 2.0 y almacenamiento cifrado local con Fernet. Las conexiones reflejan estados estrictamente verificados; no se simulan aprobaciones no autorizadas.
-      </p>
+  {% if oauth_status == 'success' %}
+    <div class="banner banner-success">
+      <span><strong>Conexión verificada:</strong> {{ oauth_provider|upper }} completó la autorización OAuth 2.0 oficial y guardó los tokens cifrados.</span>
     </div>
-    <div class="flex items-center space-x-2 text-xs">
-      <span class="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center">
-        <i class="fa-solid fa-lock mr-1.5"></i> Cifrado Fernet Activo
-      </span>
-      <span class="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
-        18 Proveedores Disponibles
-      </span>
+  {% elif oauth_status == 'error' %}
+    <div class="banner banner-danger">
+      <span><strong>Autorización no completada ({{ oauth_provider|upper }}):</strong> {{ oauth_error or 'Revisa las credenciales y la URI de redirección en Google Cloud.' }}</span>
     </div>
-  </div>
+  {% endif %}
 
-  <!-- Social & Distribution Providers Section -->
-  <div>
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-        <i class="fa-solid fa-share-nodes text-indigo-400 mr-2"></i> Redes Sociales & Canales de Distribución
-      </h3>
+  <!-- Guided 5-step Connection Wizard Banner -->
+  {% set yt = (connections | selectattr('id', 'equalto', 'youtube') | list | first) %}
+  <section class="card card-padded">
+    <div class="flex items-center justify-between flex-wrap gap-3" style="margin-bottom:14px;">
+      <div>
+        <h2 class="card-title">Asistente Guiado — Conexión Prioritaria de YouTube</h2>
+        <p class="card-subtitle">No necesitas copiar tokens manualmente: guarda Client ID y Client Secret y autoriza en el navegador.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        {% if yt and yt.has_oauth_client %}
+          <a href="/api/connections/youtube/oauth/start" class="btn btn-primary btn-sm">Conectar YouTube</a>
+        {% else %}
+          <button type="button" onclick="openConfigModal('youtube', 'YouTube', ['client_id', 'client_secret'])" class="btn btn-primary btn-sm">Paso 1: Guardar Client ID y Secret</button>
+        {% endif %}
+      </div>
     </div>
+    <div class="text-xs text-muted" style="margin-bottom:12px;">
+      URI de redirección autorizada para Google Cloud Console:
+      <code style="padding:2px 6px;border-radius:5px;background:var(--bg-input);border:1px solid var(--border-subtle);color:var(--text-primary);user-select:all;">{{ youtube_redirect_uri }}</code>
+    </div>
+    <div class="stepper">
+      <span class="step-pill done">1. Elegir YouTube</span>
+      <span class="step-pill {% if yt and yt.has_oauth_client %}done{% else %}active{% endif %}">2. Preparar Client ID/Secret</span>
+      <span class="step-pill {% if yt and yt.status == 'CONNECTED' %}done{% elif yt and yt.has_oauth_client %}active{% endif %}">3. Autorizar con Google</span>
+      <span class="step-pill {% if yt and yt.status == 'CONNECTED' %}done{% endif %}">4. Verificar Canal Real</span>
+      <span class="step-pill {% if yt and yt.status == 'CONNECTED' %}done{% endif %}">5. Listo para Publicar</span>
+    </div>
+  </section>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {% for conn in connections %}
-        {% if conn.kind == 'social' %}
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between hover:border-slate-700 transition">
-            <div>
-              <!-- Header: Icon, Name & Status Badge -->
-              <div class="flex items-start justify-between mb-3">
-                <div class="flex items-center space-x-3">
-                  <div class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center justify-center text-lg">
-                    {% if conn.id == 'youtube' %}
-                      <i class="fa-brands fa-youtube text-red-500"></i>
-                    {% elif conn.id == 'tiktok' %}
-                      <i class="fa-brands fa-tiktok text-cyan-400"></i>
-                    {% elif conn.id == 'instagram' %}
-                      <i class="fa-brands fa-instagram text-pink-500"></i>
-                    {% elif conn.id == 'facebook' %}
-                      <i class="fa-brands fa-facebook text-blue-500"></i>
-                    {% elif conn.id == 'threads' %}
-                      <i class="fa-brands fa-threads text-white"></i>
-                    {% elif conn.id == 'x' %}
-                      <i class="fa-brands fa-x-twitter text-white"></i>
-                    {% elif conn.id == 'linkedin' %}
-                      <i class="fa-brands fa-linkedin text-blue-400"></i>
-                    {% elif conn.id == 'pinterest' %}
-                      <i class="fa-brands fa-pinterest text-red-400"></i>
-                    {% elif conn.id == 'bluesky' %}
-                      <i class="fa-solid fa-cloud text-sky-400"></i>
-                    {% elif conn.id == 'telegram' %}
-                      <i class="fa-brands fa-telegram text-sky-400"></i>
-                    {% elif conn.id == 'discord' %}
-                      <i class="fa-brands fa-discord text-indigo-400"></i>
-                    {% elif conn.id == 'wordpress' %}
-                      <i class="fa-brands fa-wordpress text-blue-400"></i>
-                    {% elif conn.id == 'reddit' %}
-                      <i class="fa-brands fa-reddit-alien text-orange-500"></i>
-                    {% else %}
-                      <i class="fa-solid fa-globe text-indigo-400"></i>
-                    {% endif %}
-                  </div>
-                  <div>
-                    <h4 class="font-semibold text-sm text-white">{{ conn.name }}</h4>
-                    <span class="text-[11px] text-slate-500 uppercase">{{ conn.auth_type }}</span>
-                  </div>
-                </div>
+  <!-- Filter & Search Controls -->
+  <section class="flex items-center justify-between flex-wrap gap-3">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab-btn active" onclick="filterProviders('all', this)">Todas ({{ connections|length }})</button>
+      <button type="button" class="tab-btn" onclick="filterProviders('social', this)">Redes Sociales (14)</button>
+      <button type="button" class="tab-btn" onclick="filterProviders('storage', this)">Almacenamiento (4)</button>
+      <button type="button" class="tab-btn" onclick="filterProviders('connected', this)">Conectadas ({{ connected_count }})</button>
+    </div>
+    <div style="width:260px;max-width:100%;">
+      <input type="search" data-global-search placeholder="Filtrar proveedor... (/)" class="input" oninput="searchProviders(this.value)">
+    </div>
+  </section>
 
-                <!-- Status Badges -->
-                {% if conn.status == 'CONNECTED' %}
-                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    <i class="fa-solid fa-circle-check mr-1"></i> Conectado
-                  </span>
-                {% elif conn.status == 'NEEDS_CONFIG' %}
-                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-                    Disponible
-                  </span>
-                {% elif conn.status == 'EXPIRED' %}
-                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                    <i class="fa-solid fa-triangle-exclamation mr-1"></i> Expirado
-                  </span>
-                {% elif conn.status == 'ERROR' %}
-                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                    <i class="fa-solid fa-circle-xmark mr-1"></i> Error
-                  </span>
-                {% else %}
-                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    {{ conn.status }}
-                  </span>
-                {% endif %}
+  <!-- Providers Gallery Grid -->
+  <section id="providersGrid" class="grid-3">
+    {% for conn in connections %}
+      <article class="card card-padded flex-col justify-between gap-4 provider-card"
+               data-kind="{{ 'storage' if conn.kind in ['cloud_storage', 'local_storage'] else 'social' }}"
+               data-status="{{ conn.status }}"
+               data-name="{{ conn.name|lower }} {{ conn.id|lower }}">
+        <div class="flex-col gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+              <div style="width:40px;height:40px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:center;">
+                {{ platform_icon(conn.id, 22) }}
               </div>
+              <div>
+                <h3 style="margin:0;font-size:14.5px;font-weight:700;color:var(--text-primary);">{{ conn.name }}</h3>
+                <span class="text-xs text-muted" style="text-transform:uppercase;">{{ conn.auth_type }}</span>
+              </div>
+            </div>
 
-              <!-- Description & Account Info -->
-              <p class="text-xs text-slate-400 leading-relaxed mb-3">{{ conn.description }}</p>
+            {% if conn.status == 'CONNECTED' %}
+              <span class="badge badge-success"><span class="status-dot healthy"></span> Conectado</span>
+            {% elif conn.status == 'NEEDS_APPROVAL' %}
+              <span class="badge badge-warn">Pendiente OAuth</span>
+            {% elif conn.status == 'EXPIRED' %}
+              <span class="badge badge-danger">Expirado</span>
+            {% elif conn.status == 'INSUFFICIENT_PERMS' %}
+              <span class="badge badge-danger">Permiso Insuficiente</span>
+            {% elif conn.status == 'ERROR' %}
+              <span class="badge badge-danger">Error</span>
+            {% else %}
+              <span class="badge">Disponible</span>
+            {% endif %}
+          </div>
 
-              {% if conn.account_name %}
-                <div class="bg-slate-950/60 rounded-lg p-2.5 mb-3 border border-slate-800/80 text-xs">
-                  <span class="text-slate-500">Cuenta activa:</span>
-                  <span class="font-medium text-slate-200 ml-1">{{ conn.account_name }}</span>
-                  {% if conn.last_checked_at %}
-                    <div class="text-[10px] text-slate-500 mt-1">Última comprobación: {{ conn.last_checked_at[:19].replace('T', ' ') }}</div>
-                  {% endif %}
+          <p class="text-sm text-muted" style="margin:0;">{{ conn.description }}</p>
+
+          {% if conn.account_name %}
+            <div style="padding:10px 12px;border-radius:8px;background:var(--bg-input);border:1px solid var(--border-subtle);font-size:12px;">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-muted">Cuenta:</span>
+                <strong class="truncate" style="color:var(--text-primary);">{{ conn.account_name }}</strong>
+              </div>
+              {% if conn.account_id %}
+                <div class="flex items-center justify-between gap-2" style="margin-top:3px;">
+                  <span class="text-muted">ID Canal:</span>
+                  <span class="font-mono text-xs">{{ conn.account_id }}</span>
                 </div>
               {% endif %}
-
-              <!-- Known Limits & Constraints Accordion -->
-              <div class="bg-slate-950/40 rounded-lg p-2.5 mb-4 border border-slate-800/60 text-[11px] text-slate-400">
-                <span class="font-semibold text-slate-300 block mb-0.5"><i class="fa-solid fa-circle-info text-indigo-400 mr-1"></i> Límites y Reglas:</span>
-                {{ conn.known_limits }}
-              </div>
-            </div>
-
-            <!-- Footer Actions -->
-            <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-              <button onclick="openConfigModal('{{ conn.id }}', '{{ conn.name }}', {{ conn.required_fields|tojson }})" class="flex-1 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium border border-indigo-500/30 transition text-center">
-                <i class="fa-solid fa-sliders mr-1"></i> Configurar
-              </button>
-
-              {% if conn.status == 'CONNECTED' %}
-                <button onclick="testConnection('{{ conn.id }}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition" title="Probar conexión en vivo">
-                  <i class="fa-solid fa-stethoscope"></i>
-                </button>
-                <form action="/api/connections/{{ conn.id }}/disconnect" method="post" class="inline" onsubmit="return confirm('¿Desconectar {{ conn.name }}?');">
-                  <button type="submit" class="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs border border-rose-500/20 transition" title="Desconectar">
-                    <i class="fa-solid fa-link-slash"></i>
-                  </button>
-                </form>
+              {% if conn.last_checked_at %}
+                <div class="text-xs text-muted" style="margin-top:4px;">Verificado: {{ conn.last_checked_at[:19].replace('T', ' ') }} UTC</div>
               {% endif %}
             </div>
-          </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </div>
+          {% endif %}
 
-  <!-- Cloud Storage & Local Ingestion Section -->
-  <div class="pt-6">
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-        <i class="fa-solid fa-folder-open text-indigo-400 mr-2"></i> Ingesta desde Nube & Almacenamiento Local
-      </h3>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      {% for conn in connections %}
-        {% if conn.kind in ['cloud_storage', 'local_storage'] %}
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between hover:border-slate-700 transition">
-            <div>
-              <div class="flex items-start justify-between mb-3">
-                <div class="flex items-center space-x-3">
-                  <div class="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-base">
-                    {% if conn.id == 'google_drive' %}
-                      <i class="fa-brands fa-google-drive text-amber-400"></i>
-                    {% elif conn.id == 'dropbox' %}
-                      <i class="fa-brands fa-dropbox text-blue-400"></i>
-                    {% elif conn.id == 'onedrive' %}
-                      <i class="fa-solid fa-cloud text-sky-400"></i>
-                    {% else %}
-                      <i class="fa-solid fa-hard-drive text-emerald-400"></i>
-                    {% endif %}
-                  </div>
-                  <div>
-                    <h4 class="font-semibold text-xs text-white">{{ conn.name }}</h4>
-                    <span class="text-[10px] text-slate-500 uppercase">{{ conn.auth_type }}</span>
-                  </div>
-                </div>
-
-                <span class="px-2 py-0.5 rounded text-[10px] font-semibold {% if conn.status == 'CONNECTED' %}bg-emerald-500/15 text-emerald-400 border border-emerald-500/30{% else %}bg-slate-800 text-slate-400{% endif %}">
-                  {{ conn.status }}
-                </span>
-              </div>
-
-              <p class="text-xs text-slate-400 mb-3">{{ conn.description }}</p>
+          {% if conn.last_error %}
+            <div class="banner banner-danger" style="padding:8px 10px;font-size:12px;">
+              <span>{{ conn.last_error }}</span>
             </div>
+          {% endif %}
 
-            <div class="pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
-              <button onclick="openConfigModal('{{ conn.id }}', '{{ conn.name }}', {{ conn.required_fields|tojson }})" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition text-center">
-                Configurar
-              </button>
-            </div>
+          <div class="flex flex-wrap gap-2">
+            {% for cap in conn.capabilities[:4] %}
+              <span class="badge" style="font-size:11px;">{{ cap }}</span>
+            {% endfor %}
           </div>
-        {% endif %}
-      {% endfor %}
+
+          <details style="font-size:12px;color:var(--text-muted);">
+            <summary style="cursor:pointer;color:var(--text-secondary);font-weight:600;">Límites oficiales y documentación</summary>
+            <p style="margin:6px 0 4px;">{{ conn.known_limits }}</p>
+            <a href="{{ conn.doc_url }}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-indigo-hover);">Documentación oficial &rarr;</a>
+          </details>
+        </div>
+
+        <div class="flex items-center flex-wrap gap-2" style="padding-top:12px;border-top:1px solid var(--border-subtle);">
+          {% if conn.id == 'youtube' and conn.has_oauth_client and conn.status != 'CONNECTED' %}
+            <a href="/api/connections/youtube/oauth/start" class="btn btn-primary btn-sm" style="flex:1;">Conectar YouTube</a>
+          {% endif %}
+
+          <button type="button"
+                  onclick='openConfigModal({{ conn.id|tojson }}, {{ conn.name|tojson }}, {{ conn.required_fields|tojson }})'
+                  class="btn {% if conn.status == 'CONNECTED' %}btn-secondary{% else %}btn-primary{% endif %} btn-sm"
+                  style="flex:1;">
+            {{ 'Configurar' if conn.status == 'CONNECTED' else 'Preparar Conexión' }}
+          </button>
+
+          {% if conn.connection_id %}
+            <button type="button" onclick="testConnection('{{ conn.id }}')" class="btn btn-secondary btn-sm" title="Ejecutar diagnóstico real">Diagnosticar</button>
+            {% if conn.id == 'youtube' and conn.has_refresh_token %}
+              <button type="button" onclick="refreshYouTubeToken()" class="btn btn-secondary btn-sm" title="Renovar access_token">Renovar</button>
+            {% endif %}
+            <form action="/api/connections/{{ conn.id }}/disconnect" method="post" style="margin:0;" onsubmit="return confirm('¿Revocar y desconectar {{ conn.name }}?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+              <button type="submit" class="btn btn-danger btn-sm" title="Desconectar">Salir</button>
+            </form>
+          {% endif %}
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+
+  <!-- Credentials Config Modal -->
+  <div id="configModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <h3 id="modalTitle" class="card-title">Configurar Proveedor</h3>
+          <p class="card-subtitle">Almacenamiento local cifrado con Fernet 256-bit</p>
+        </div>
+        <button type="button" onclick="closeConfigModal()" class="btn btn-ghost btn-icon" aria-label="Cerrar">&times;</button>
+      </div>
+      <form id="credentialsForm" onsubmit="submitCredentials(event)">
+        <div class="modal-body">
+          <input type="hidden" id="modalProviderId" name="provider_id">
+          <div class="field">
+            <label for="modalAccountName" class="field-label">Nombre visible de la cuenta</label>
+            <input type="text" id="modalAccountName" name="account_name" required placeholder="Ej. Canal Principal" class="input">
+          </div>
+          <div id="dynamicFieldsContainer" class="flex-col gap-3"></div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="testNowCheckbox" checked>
+            <span>Verificar inmediatamente contra la API oficial al guardar</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="closeConfigModal()" class="btn btn-secondary btn-sm">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Guardar Cifrado</button>
+        </div>
+      </form>
     </div>
   </div>
 
-</div>
-
-<!-- Modal de Configuración de Credenciales -->
-<div id="configModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
-    <div class="flex items-center justify-between pb-4 border-b border-slate-800">
-      <div>
-        <h3 id="modalTitle" class="text-base font-bold text-white">Configurar Proveedor</h3>
-        <p class="text-xs text-slate-400 mt-0.5">Credenciales cifradas con Fernet localmente.</p>
+  <!-- Live Diagnostic Modal -->
+  <div id="diagModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="card-title">Diagnóstico Real de Conexión</h3>
+        <button type="button" onclick="closeDiagModal()" class="btn btn-ghost btn-icon" aria-label="Cerrar">&times;</button>
       </div>
-      <button onclick="closeConfigModal()" class="text-slate-500 hover:text-slate-300">
-        <i class="fa-solid fa-xmark text-lg"></i>
-      </button>
-    </div>
-
-    <form id="credentialsForm" onsubmit="submitCredentials(event)" class="mt-4 space-y-4">
-      <input type="hidden" id="modalProviderId" name="provider_id">
-      
-      <div>
-        <label class="block text-xs font-medium text-slate-300 mb-1">Nombre / Identificador de la Cuenta</label>
-        <input type="text" id="modalAccountName" name="account_name" required placeholder="p. ej. @MiCanalPrincipal" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+      <div id="diagContent" class="modal-body text-sm">Consultando API oficial...</div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeDiagModal()" class="btn btn-secondary btn-sm">Cerrar</button>
       </div>
-
-      <!-- Dynamic Fields Container -->
-      <div id="dynamicFieldsContainer" class="space-y-3"></div>
-
-      <div class="flex items-center space-x-2 pt-2">
-        <input type="checkbox" id="testNowCheckbox" checked class="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-indigo-500">
-        <label for="testNowCheckbox" class="text-xs text-slate-300">Ejecutar prueba de diagnóstico en vivo al guardar</label>
-      </div>
-
-      <div class="pt-4 border-t border-slate-800 flex justify-end space-x-2">
-        <button type="button" onclick="closeConfigModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
-          Cancelar
-        </button>
-        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition">
-          Guardar & Probar Conexión
-        </button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Modal de Diagnóstico en Vivo -->
-<div id="diagModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-    <h3 class="text-base font-bold text-white mb-2 flex items-center">
-      <i class="fa-solid fa-stethoscope text-indigo-400 mr-2"></i> Diagnóstico de Conexión
-    </h3>
-    <div id="diagContent" class="text-xs text-slate-300 py-4">
-      <div class="flex items-center space-x-2 text-indigo-400">
-        <i class="fa-solid fa-circle-notch fa-spin"></i>
-        <span>Consultando API remota del proveedor...</span>
-      </div>
-    </div>
-    <div class="pt-4 border-t border-slate-800 flex justify-end">
-      <button onclick="closeDiagModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
-        Cerrar
-      </button>
     </div>
   </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-function openConfigModal(providerId, providerName, fields) {
-  document.getElementById('modalProviderId').value = providerId;
-  document.getElementById('modalTitle').innerText = 'Configurar ' + providerName;
-  const container = document.getElementById('dynamicFieldsContainer');
-  container.innerHTML = '';
+  let activeCategory = 'all';
+  let activeSearch = '';
 
-  fields.forEach(f => {
-    const div = document.createElement('div');
-    const label = document.createElement('label');
-    label.className = 'block text-xs font-medium text-slate-300 mb-1';
-    label.innerText = f.replace(/_/g, ' ').toUpperCase();
-
-    const input = document.createElement('input');
-    input.type = f.includes('secret') || f.includes('token') || f.includes('password') ? 'password' : 'text';
-    input.name = f;
-    input.required = true;
-    input.className = 'w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500';
-    input.placeholder = 'Ingresa ' + f;
-
-    div.appendChild(label);
-    div.appendChild(input);
-    container.appendChild(div);
-  });
-
-  document.getElementById('configModal').classList.remove('hidden');
-}
-
-function closeConfigModal() {
-  document.getElementById('configModal').classList.add('hidden');
-}
-
-async function submitCredentials(e) {
-  e.preventDefault();
-  const form = document.getElementById('credentialsForm');
-  const formData = new FormData(form);
-  const providerId = formData.get('provider_id');
-  const accountName = formData.get('account_name');
-  const testNow = document.getElementById('testNowCheckbox').checked;
-
-  const creds = {};
-  for (let [key, val] of formData.entries()) {
-    if (key !== 'provider_id' && key !== 'account_name') {
-      creds[key] = val;
-    }
-  }
-
-  try {
-    const res = await fetch(`/api/connections/${providerId}/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account_name: accountName, credentials: creds, test_now: testNow })
+  function applyProviderFilters() {
+    document.querySelectorAll('.provider-card').forEach(card => {
+      const kind = card.dataset.kind;
+      const status = card.dataset.status;
+      const name = card.dataset.name || '';
+      const catOk = activeCategory === 'all'
+        || (activeCategory === 'connected' && status === 'CONNECTED')
+        || (activeCategory === kind);
+      const searchOk = !activeSearch || name.includes(activeSearch);
+      card.classList.toggle('hidden', !(catOk && searchOk));
     });
-    const data = await res.json();
-    alert(data.message || 'Credenciales guardadas.');
-    window.location.reload();
-  } catch (err) {
-    alert('Error al guardar credenciales: ' + err);
   }
-}
 
-async function testConnection(providerId) {
-  const modal = document.getElementById('diagModal');
-  const content = document.getElementById('diagContent');
-  modal.classList.remove('hidden');
-  content.innerHTML = '<div class="flex items-center space-x-2 text-indigo-400"><i class="fa-solid fa-circle-notch fa-spin"></i><span>Ejecutando diagnóstico real...</span></div>';
+  function filterProviders(cat, btn) {
+    activeCategory = cat;
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyProviderFilters();
+  }
 
-  try {
-    const res = await fetch(`/api/connections/${providerId}/test`, { method: 'POST' });
-    const data = await res.json();
-    if (data.ok) {
-      content.innerHTML = `
-        <div class="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-300">
-          <div class="font-bold mb-1"><i class="fa-solid fa-circle-check mr-1"></i> Conexión Verificada Exitosamente</div>
-          <div>${data.message}</div>
-        </div>
-      `;
-    } else {
-      content.innerHTML = `
-        <div class="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300">
-          <div class="font-bold mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Fallo de Diagnóstico</div>
-          <div>${data.message}</div>
-        </div>
-      `;
+  function searchProviders(val) {
+    activeSearch = (val || '').trim().toLowerCase();
+    applyProviderFilters();
+  }
+
+  function openConfigModal(providerId, providerName, fields) {
+    document.getElementById('modalProviderId').value = providerId;
+    document.getElementById('modalTitle').textContent = 'Configurar ' + providerName;
+    const container = document.getElementById('dynamicFieldsContainer');
+    container.innerHTML = '';
+
+    fields.forEach(f => {
+      const wrap = document.createElement('div');
+      wrap.className = 'field';
+      const label = document.createElement('label');
+      label.className = 'field-label';
+      label.textContent = f.replace(/_/g, ' ').toUpperCase();
+      const input = document.createElement('input');
+      input.type = (f.includes('secret') || f.includes('token') || f.includes('password')) ? 'password' : 'text';
+      input.name = f;
+      input.required = true;
+      input.className = 'input';
+      input.placeholder = 'Introduce ' + f;
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      container.appendChild(wrap);
+    });
+
+    document.getElementById('configModal').classList.add('open');
+  }
+
+  function closeConfigModal() {
+    document.getElementById('configModal').classList.remove('open');
+  }
+
+  async function submitCredentials(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const providerId = formData.get('provider_id');
+    const accountName = formData.get('account_name');
+    const testNow = document.getElementById('testNowCheckbox').checked;
+    const creds = {};
+    for (const [k, v] of formData.entries()) {
+      if (k !== 'provider_id' && k !== 'account_name') creds[k] = v;
     }
-  } catch (err) {
-    content.innerHTML = `<div class="text-rose-400">Error de comunicación: ${err}</div>`;
+    try {
+      const res = await window.clipflowFetch(`/api/connections/${providerId}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_name: accountName, credentials: creds, test_now: testNow })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        window.showToast(data.detail || 'Error al guardar credenciales', 'error');
+        return;
+      }
+      window.showToast(data.message || 'Credenciales guardadas.', data.ok ? 'success' : 'warn');
+      setTimeout(() => window.location.reload(), 900);
+    } catch (err) {
+      window.showToast('Error de red: ' + err, 'error');
+    }
   }
-}
 
-function closeDiagModal() {
-  document.getElementById('diagModal').classList.add('hidden');
-}
+  async function testConnection(providerId) {
+    const modal = document.getElementById('diagModal');
+    const content = document.getElementById('diagContent');
+    modal.classList.add('open');
+    content.innerHTML = '<p class="text-muted">Consultando API oficial del proveedor...</p>';
+    try {
+      const res = await window.clipflowFetch(`/api/connections/${providerId}/test`, { method: 'POST' });
+      const data = await res.json();
+      content.innerHTML = `
+        <div class="banner ${data.ok ? 'banner-success' : 'banner-danger'}">
+          <div>
+            <strong>${data.ok ? 'Conexión Verificada' : 'Diagnóstico Fallido'} (${data.status || ''})</strong>
+            <div style="margin-top:4px;">${data.message || ''}</div>
+          </div>
+        </div>`;
+    } catch (err) {
+      content.innerHTML = `<div class="banner banner-danger">Error de comunicación: ${err}</div>`;
+    }
+  }
+
+  async function refreshYouTubeToken() {
+    try {
+      const res = await window.clipflowFetch('/api/connections/youtube/oauth/refresh', { method: 'POST' });
+      const data = await res.json();
+      window.showToast(data.message || 'Proceso completado', data.ok ? 'success' : 'error');
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      window.showToast('Error al renovar token: ' + err, 'error');
+    }
+  }
+
+  function closeDiagModal() {
+    document.getElementById('diagModal').classList.remove('open');
+  }
 </script>
 {% endblock %}

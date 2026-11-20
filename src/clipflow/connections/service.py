@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -43,17 +44,26 @@ class ConnectionService:
                 conn_id = db_conn.id
                 creds = decrypt_credentials(db_conn.encrypted_credentials) if db_conn.encrypted_credentials else {}
                 has_oauth_client = bool(creds.get("client_id") and creds.get("client_secret"))
+                if info.id == "youtube" and not has_oauth_client:
+                    has_oauth_client = bool(
+                        (os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
+                        and (os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
+                    )
                 has_refresh_token = bool(creds.get("refresh_token"))
                 scopes = json.loads(db_conn.scopes_json) if db_conn.scopes_json else []
             else:
-                status = ConnectionStatus.NEEDS_CONFIG
+                has_oauth_client = bool(
+                    info.id == "youtube"
+                    and (os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
+                    and (os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
+                )
+                status = ConnectionStatus.NEEDS_APPROVAL if has_oauth_client else ConnectionStatus.NEEDS_CONFIG
                 account_name = None
                 account_id = None
                 last_checked = None
                 last_error = None
                 expires_at = None
                 conn_id = None
-                has_oauth_client = False
                 has_refresh_token = False
                 scopes = []
 
@@ -237,6 +247,8 @@ class ConnectionService:
         expires_in: Optional[int] = None,
         scopes: Optional[List[str]] = None,
         verify_now: bool = True,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Actualiza los tokens OAuth cifrados preservando client_id/client_secret y refresh_token previo."""
         provider = get_provider(provider_id)
@@ -249,6 +261,10 @@ class ConnectionService:
             self.db.add(conn)
 
         creds = decrypt_credentials(conn.encrypted_credentials) if conn.encrypted_credentials else {}
+        if client_id:
+            creds["client_id"] = client_id.strip()
+        if client_secret:
+            creds["client_secret"] = client_secret.strip()
         creds["access_token"] = access_token
         if refresh_token:
             creds["refresh_token"] = refresh_token

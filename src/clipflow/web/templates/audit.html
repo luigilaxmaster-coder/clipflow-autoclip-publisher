@@ -1,52 +1,45 @@
 {% extends "base.html" %}
 
-{% block title %}Registro de Auditoría &middot; ClipFlow{% endblock %}
+{% block title %}Auditoría — AutoClip Publisher V2{% endblock %}
+{% block page_title %}Eventos de Auditoría{% endblock %}
+{% block page_subtitle %}Registro estructurado de acciones, reconciliaciones y cambios de estado sin exposición de secretos{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-  <div>
-    <h1 class="text-xl font-bold text-white flex items-center">
-      <i class="fa-solid fa-shield-halved mr-2 text-indigo-400"></i> Eventos de Auditoría
-    </h1>
-    <p class="text-xs text-slate-400 mt-1">
-      Registro inmutable de acciones, aprobaciones y despachos en el sistema.
-    </p>
-  </div>
-
-  <div class="bg-slate-800/60 rounded-xl border border-slate-700/50 overflow-hidden shadow-xl">
-    {% if not events %}
-    <div class="p-12 text-center text-slate-400">
-      <i class="fa-solid fa-shield-cat text-4xl mb-3 text-slate-600"></i>
-      <p class="text-sm">No hay eventos de auditoría registrados.</p>
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Eventos de Auditoría ({{ events|length }})</h2>
+      <a href="/queue" class="btn btn-secondary btn-sm">&larr; Volver a Queue</a>
     </div>
+    {% if events %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha (UTC)</th>
+              <th>Entidad</th>
+              <th>Actor</th>
+              <th>Acción</th>
+              <th>Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ev in events %}
+              <tr>
+                <td class="font-mono text-xs">{{ ev.created_at.strftime('%Y-%m-%d %H:%M:%S') if ev.created_at else '-' }}</td>
+                <td><span class="badge">{{ ev.entity_type }}</span> <span class="font-mono text-xs text-muted">{{ ev.entity_id[:10] }}</span></td>
+                <td>{{ ev.actor }}</td>
+                <td style="font-weight:600;color:var(--text-primary);">{{ ev.action }}</td>
+                <td class="font-mono text-xs text-muted" style="max-width:340px;" class="truncate">{{ ev.after_json or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-    <div class="overflow-x-auto">
-      <table class="w-full text-left text-sm text-slate-300">
-        <thead class="bg-slate-900/50 text-xs uppercase text-slate-400 border-b border-slate-700/50">
-          <tr>
-            <th class="px-6 py-3">Fecha (UTC)</th>
-            <th class="px-6 py-3">Actor</th>
-            <th class="px-6 py-3">Entidad</th>
-            <th class="px-6 py-3">Acción</th>
-            <th class="px-6 py-3">Detalle</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-700/40 text-xs">
-          {% for ev in events %}
-          <tr class="hover:bg-slate-700/20 transition">
-            <td class="px-6 py-3 text-slate-400 font-mono">{{ ev.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-            <td class="px-6 py-3 font-semibold text-indigo-300">{{ ev.actor }}</td>
-            <td class="px-6 py-3"><span class="px-2 py-0.5 rounded bg-slate-700/50 text-slate-300">{{ ev.entity_type }} ({{ ev.entity_id[:8] }})</span></td>
-            <td class="px-6 py-3 font-medium text-white">{{ ev.action }}</td>
-            <td class="px-6 py-3 font-mono text-[11px] text-slate-400 max-w-xs truncate" title="{{ ev.after_json }}">
-              {{ ev.after_json }}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+      <div class="empty-state">
+        <h4>Sin eventos de auditoría todavía</h4>
+        <p>Las operaciones de conexión OAuth, encolado, reconciliación y cancelación se registrarán automáticamente aquí.</p>
+      </div>
     {% endif %}
-  </div>
-</div>
+  </section>
 {% endblock %}

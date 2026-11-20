@@ -1,140 +1,146 @@
 <!DOCTYPE html>
-<html lang="es" class="h-full bg-slate-950 text-slate-100">
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}AutoClip Publisher — Personal Edition{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50: '#eef2ff',
-              400: '#818cf8',
-              500: '#6366f1',
-              600: '#4f46e5',
-              700: '#4338ca',
-              900: '#312e81',
-            }
-          }
-        }
-      }
-    }
-  </script>
-  <style>
-    /* Custom scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0f172a; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #475569; }
-  </style>
+  <meta name="csrf-token" content="{{ csrf_token or '' }}">
+  <title>{% block title %}AutoClip Publisher V2 — Personal Edition{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/design-system.css">
 </head>
-<body class="h-full flex overflow-hidden font-sans antialiased bg-slate-950 text-slate-100">
-  
-  <!-- Sidebar -->
-  <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0 select-none z-20">
-    <!-- Brand Header -->
-    <div class="h-16 flex items-center px-5 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur">
-      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-rose-500 flex items-center justify-center shadow-md shadow-indigo-500/20 mr-3">
-        <i class="fa-solid fa-bolt text-white text-sm"></i>
-      </div>
-      <div>
-        <div class="font-extrabold text-base tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">AUTOCLIP</div>
-        <div class="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold">ClipFlow Publisher · Personal</div>
-      </div>
-    </div>
+<body>
+  <div id="appShell" class="app-shell">
+    <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
-    <!-- Navigation Links -->
-    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto text-sm">
-      <div class="px-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Gestión & Control</div>
-      
-      <a href="/" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/' or request.url.path == '/overview' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-chart-pie w-5 mr-2.5 text-center"></i> Overview
-      </a>
-
-      <a href="/connections" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/connections' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-plug w-5 mr-2.5 text-center"></i> Connected Apps
-      </a>
-
-      <a href="/publisher" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/publisher' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-paper-plane w-5 mr-2.5 text-center"></i> Publisher
-      </a>
-
-      <a href="/calendar" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/calendar' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-calendar-days w-5 mr-2.5 text-center"></i> Calendar
-      </a>
-
-      <a href="/media-library" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/media-library' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-photo-film w-5 mr-2.5 text-center"></i> Media Library
-      </a>
-
-      <div class="pt-4 px-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Interacción & Reglas</div>
-
-      <a href="/analytics" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/analytics' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-chart-line w-5 mr-2.5 text-center"></i> Analytics
-      </a>
-
-      <a href="/inbox" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/inbox' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-inbox w-5 mr-2.5 text-center"></i> Inbox & Mensajes
-      </a>
-
-      <a href="/automations" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/automations' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-wand-magic-sparkles w-5 mr-2.5 text-center"></i> Automations
-      </a>
-
-      <div class="pt-4 px-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Operaciones</div>
-
-      <a href="/queue" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/queue' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-clock-rotate-left w-5 mr-2.5 text-center"></i> Queue & Jobs
-      </a>
-
-      <a href="/settings" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/settings' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
-        <i class="fa-solid fa-gear w-5 mr-2.5 text-center"></i> Settings
-      </a>
-    </nav>
-
-    <!-- System Status Footer -->
-    <div class="p-4 border-t border-slate-800/80 bg-slate-900/40 text-xs text-slate-400">
-      <div class="flex items-center justify-between mb-1">
-        <span class="flex items-center">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-2"></span>
-          Motor Local
-        </span>
-        <span class="text-[11px] text-slate-400 font-mono">AutoClip v1.5</span>
-      </div>
-      <div class="text-[11px] text-slate-400">Owner Workspace &middot; Modo Privado</div>
-    </div>
-  </aside>
-
-  <!-- Content Container -->
-  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <!-- Top Bar -->
-    <header class="h-16 border-b border-slate-800/80 bg-slate-900/40 backdrop-blur px-6 flex items-center justify-between flex-shrink-0">
-      <div class="flex items-center space-x-3">
-        <h1 class="text-lg font-semibold text-white">{% block page_title %}Overview{% endblock %}</h1>
-      </div>
-      <div class="flex items-center space-x-3">
-        <a href="/publisher" class="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm shadow-indigo-600/30 transition">
-          <i class="fa-solid fa-plus mr-1.5"></i> Nueva Publicación
+    <!-- Collapsible Sidebar -->
+    <aside class="sidebar" aria-label="Navegación principal">
+      <div class="sidebar-header">
+        <a href="/" class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <div class="brand-name">AUTOCLIP</div>
+            <div class="brand-sub">ClipFlow Publisher V2</div>
+          </div>
         </a>
-        <div class="w-px h-6 bg-slate-800"></div>
-        <div class="flex items-center space-x-2 text-xs text-slate-400">
-          <i class="fa-solid fa-user-shield text-indigo-400"></i>
-          <span class="font-medium text-slate-300">Propietario Único</span>
-        </div>
+        <button id="sidebarCollapseBtn" type="button" class="btn btn-ghost btn-icon sidebar-collapse-btn" title="Colapsar barra lateral" aria-label="Colapsar barra lateral">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+          </svg>
+        </button>
       </div>
-    </header>
 
-    <!-- Main Scrollable Body -->
-    <main class="flex-1 overflow-y-auto p-6 bg-slate-950">
-      {% block content %}{% endblock %}
-    </main>
+      <nav class="sidebar-nav">
+        <div class="nav-group-title">Centro de Mando</div>
+
+        <a href="/" class="nav-item {% if request.url.path in ['/', '/overview'] %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+          <span class="nav-label">Overview</span>
+        </a>
+
+        <a href="/connections" class="nav-item {% if request.url.path == '/connections' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
+          <span class="nav-label">Connected Apps</span>
+        </a>
+
+        <div class="nav-group-title">Estudio & Distribución</div>
+
+        <a href="/publisher" class="nav-item {% if request.url.path == '/publisher' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          <span class="nav-label">Publisher</span>
+        </a>
+
+        <a href="/calendar" class="nav-item {% if request.url.path == '/calendar' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          <span class="nav-label">Calendar</span>
+        </a>
+
+        <a href="/media-library" class="nav-item {% if request.url.path == '/media-library' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m10 9 5 3-5 3V9z"/></svg>
+          <span class="nav-label">Media Library</span>
+        </a>
+
+        <div class="nav-group-title">Inteligencia & Flujos</div>
+
+        <a href="/analytics" class="nav-item {% if request.url.path == '/analytics' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+          <span class="nav-label">Analytics</span>
+        </a>
+
+        <a href="/inbox" class="nav-item {% if request.url.path == '/inbox' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+          <span class="nav-label">Inbox</span>
+        </a>
+
+        <a href="/automations" class="nav-item {% if request.url.path == '/automations' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.6 7.4 15.4 16.6"/><circle cx="18" cy="6" r="3"/><path d="M9 6h6"/></svg>
+          <span class="nav-label">Automations</span>
+        </a>
+
+        <div class="nav-group-title">Operaciones</div>
+
+        <a href="/queue" class="nav-item {% if request.url.path == '/queue' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+          <span class="nav-label">Queue & Jobs</span>
+        </a>
+
+        <a href="/settings" class="nav-item {% if request.url.path == '/settings' %}active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span class="nav-label">Settings</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-text">
+          <div class="text-xs" style="font-weight:600;color:var(--text-secondary);">Propietario Único</div>
+          <div class="text-xs text-muted">Edición Personal Local</div>
+        </div>
+        <form action="/logout" method="post" style="margin:0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+          <button type="submit" class="btn btn-ghost btn-icon" title="Cerrar sesión" aria-label="Cerrar sesión">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </form>
+      </div>
+    </aside>
+
+    <!-- Main Column -->
+    <div class="main-column">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="mobileMenuBtn" type="button" class="btn btn-secondary btn-icon mobile-menu-btn" aria-label="Abrir menú">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div class="topbar-title-group">
+            <h1 class="topbar-title">{% block page_title %}Overview{% endblock %}</h1>
+            <p class="topbar-subtitle">{% block page_subtitle %}Centro audiovisual de publicación personal{% endblock %}</p>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <a href="/settings" id="liveHealthBadge" class="badge" title="Verificando estado real del sistema...">
+            <span id="liveHealthDot" class="status-dot"></span>
+            <span id="liveHealthLabel">Verificando...</span>
+          </a>
+          <a href="/publisher" class="btn btn-primary btn-sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>Nueva Publicación</span>
+          </a>
+        </div>
+      </header>
+
+      <main class="page-body">
+        <div class="page-container">
+          {% block content %}{% endblock %}
+        </div>
+      </main>
+    </div>
   </div>
 
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/charts.js"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,121 +1,250 @@
 {% extends "base.html" %}
+{% from "_icons.html" import platform_icon %}
 
-{% block title %}Calendar — AutoClip Publisher{% endblock %}
-{% block page_title %}Calendario Editorial & Programación{% endblock %}
+{% block title %}Calendar — AutoClip Publisher V2{% endblock %}
+{% block page_title %}Calendario Editorial{% endblock %}
+{% block page_subtitle %}Vistas de semana, mes, día y lista · Arrastra para reprogramar en America/Santo_Domingo (UTC-4){% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-
-  <!-- Calendar Controls Header -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-    <div class="flex items-center space-x-3">
-      <div class="flex items-center bg-slate-950 rounded-lg border border-slate-800 p-1">
-        <button class="px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 text-white shadow-sm">Semana</button>
-        <button class="px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white">Mes</button>
+  <section class="card card-padded flex items-center justify-between flex-wrap gap-3">
+    <div class="flex items-center gap-3 flex-wrap">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab-btn active" onclick="setCalView('week', this)">Semana</button>
+        <button type="button" class="tab-btn" onclick="setCalView('month', this)">Mes</button>
+        <button type="button" class="tab-btn" onclick="setCalView('day', this)">Día</button>
+        <button type="button" class="tab-btn" onclick="setCalView('list', this)">Lista</button>
       </div>
-      <div class="text-sm font-bold text-white flex items-center">
-        <i class="fa-regular fa-calendar text-indigo-400 mr-2"></i> Noviembre - Diciembre 2026
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="shiftCal(-1)">&larr;</button>
+        <strong id="calRangeTitle" style="min-width:170px;text-align:center;"></strong>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="shiftCal(1)">&rarr;</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="goToday()">Hoy</button>
       </div>
     </div>
-
-    <div class="flex items-center space-x-2 text-xs">
-      <span class="text-slate-400"><i class="fa-solid fa-clock text-amber-400 mr-1"></i> Zona de Negocio: America/Santo_Domingo (UTC-4)</span>
-      <a href="/publisher" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition">
-        + Programar Post
-      </a>
+    <div class="flex items-center gap-2">
+      <span class="badge">UTC-4 Santo Domingo</span>
+      <a href="/publisher" class="btn btn-primary btn-sm">+ Programar Clip</a>
     </div>
-  </div>
+  </section>
 
-  <!-- Weekly Calendar Grid -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-    <div class="grid grid-cols-7 border-b border-slate-800 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-3 bg-slate-950/60">
-      <div>Lun 17</div>
-      <div>Mar 18</div>
-      <div>Mié 19</div>
-      <div class="text-indigo-400 font-bold">Jue 20 (Hoy)</div>
-      <div>Vie 21</div>
-      <div>Sáb 22</div>
-      <div>Dom 23</div>
-    </div>
+  <!-- Dynamic Calendar Mount -->
+  <section id="calendarSurface" class="card" style="overflow:hidden;"></section>
 
-    <!-- Calendar Slots (7 columns) -->
-    <div class="grid grid-cols-7 min-h-[450px] divide-x divide-slate-800/80 bg-slate-950/20 text-xs">
-
-      <!-- Days 1 to 3 -->
-      <div class="p-2 space-y-2"></div>
-      <div class="p-2 space-y-2"></div>
-      <div class="p-2 space-y-2"></div>
-
-      <!-- Today (Jueves 20) -->
-      <div class="p-2 space-y-2 bg-indigo-950/10">
-        {% for job in scheduled_jobs %}
-          <div class="bg-slate-900 border border-indigo-500/30 rounded-lg p-2.5 shadow-md hover:border-indigo-400 transition cursor-pointer">
-            <div class="flex items-center justify-between mb-1.5">
-              <span class="text-[10px] font-bold text-amber-400 flex items-center">
-                <i class="fa-solid fa-clock mr-1"></i>
-                {{ job.scheduled_at_utc.strftime('%H:%M') if job.scheduled_at_utc else 'Inmediato' }}
-              </span>
-              {% if job.post_draft and job.post_draft.platform == 'youtube' %}
-                <i class="fa-brands fa-youtube text-red-500"></i>
-              {% elif job.post_draft and job.post_draft.platform == 'tiktok' %}
-                <i class="fa-brands fa-tiktok text-cyan-400"></i>
-              {% else %}
-                <i class="fa-brands fa-instagram text-pink-500"></i>
-              {% endif %}
-            </div>
-            <div class="font-medium text-slate-200 line-clamp-2 text-[11px]">
-              {{ job.post_draft.title if job.post_draft else 'Clip programado' }}
-            </div>
-            <div class="mt-2 pt-1 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
-              <span>{{ job.status }}</span>
-              <button onclick="cancelJob('{{ job.id }}')" class="hover:text-rose-400" title="Cancelar">
-                <i class="fa-solid fa-trash-can"></i>
-              </button>
-            </div>
-          </div>
-        {% endfor %}
-
-        <div class="border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-lg p-3 text-center text-slate-500 cursor-pointer transition">
-          <a href="/publisher" class="block text-[11px]">+ Añadir</a>
-        </div>
+  <!-- Event Detail & Reschedule Modal -->
+  <div id="eventModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="evModalTitle" class="card-title">Detalle de Publicación</h3>
+        <button type="button" onclick="closeEventModal()" class="btn btn-ghost btn-icon">&times;</button>
       </div>
-
-      <!-- Days 5 to 7 -->
-      <div class="p-2 space-y-2">
-        <div class="border-2 border-dashed border-slate-800/60 rounded-lg p-3 text-center text-slate-600">
-          <span class="text-[11px]">10:00 AM (Mejor hora)</span>
-        </div>
+      <div id="evModalBody" class="modal-body text-sm"></div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeEventModal()" class="btn btn-secondary btn-sm">Cerrar</button>
       </div>
-      <div class="p-2 space-y-2">
-        <div class="border-2 border-dashed border-slate-800/60 rounded-lg p-3 text-center text-slate-600">
-          <span class="text-[11px]">03:00 PM (Mejor hora)</span>
-        </div>
-      </div>
-      <div class="p-2 space-y-2">
-        <div class="border-2 border-dashed border-slate-800/60 rounded-lg p-3 text-center text-slate-600">
-          <span class="text-[11px]">08:00 PM (Mejor hora)</span>
-        </div>
-      </div>
-
     </div>
   </div>
+{% endblock %}
 
-</div>
-
+{% block scripts %}
 <script>
-async function cancelJob(jobId) {
-  if (!confirm('¿Deseas cancelar esta publicación programada?')) return;
-  try {
-    const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+  const CAL_EVENTS = {{ calendar_events | tojson }};
+  let calView = 'week';
+  let anchorDate = new Date("{{ today_local }}T12:00:00");
+
+  function fmtYMD(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function setCalView(view, btn) {
+    calView = view;
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderCalendar();
+  }
+
+  function shiftCal(delta) {
+    if (calView === 'week') anchorDate.setDate(anchorDate.getDate() + delta * 7);
+    else if (calView === 'month') anchorDate.setMonth(anchorDate.getMonth() + delta);
+    else anchorDate.setDate(anchorDate.getDate() + delta);
+    renderCalendar();
+  }
+
+  function goToday() {
+    anchorDate = new Date("{{ today_local }}T12:00:00");
+    renderCalendar();
+  }
+
+  function renderEventCard(ev) {
+    const dragAttr = ev.movable ? `draggable="true" ondragstart="onDragEvent(event, '${ev.id}', '${ev.time}')"` : '';
+    const thumbHtml = ev.has_thumb
+      ? `<img src="/api/media/thumbnail/${ev.asset_id}" alt="" style="width:26px;height:42px;border-radius:4px;object-fit:cover;flex-shrink:0;">`
+      : '';
+    return `
+      <div class="calendar-event-card" ${dragAttr} onclick='openEventModal(${JSON.stringify(ev)})'>
+        <div class="flex items-center gap-2">
+          ${thumbHtml}
+          <div style="min-width:0;flex:1;">
+            <div class="flex items-center justify-between text-xs text-muted">
+              <span class="font-mono" style="color:var(--status-warn);">${ev.time}</span>
+              <span style="text-transform:uppercase;">${ev.platform}</span>
+            </div>
+            <div class="truncate" style="font-weight:600;color:var(--text-primary);margin-top:2px;">${ev.title}</div>
+            <div class="text-xs text-muted" style="margin-top:2px;">${ev.status}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderCalendar() {
+    const mount = document.getElementById('calendarSurface');
+    const titleEl = document.getElementById('calRangeTitle');
+    const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+    if (calView === 'list') {
+      titleEl.textContent = 'Lista Cronológica';
+      if (CAL_EVENTS.length === 0) {
+        mount.innerHTML = `<div class="empty-state"><h4>Sin publicaciones programadas</h4><p>Programa tus clips desde el Publisher para verlos aquí.</p></div>`;
+        return;
+      }
+      mount.innerHTML = `<div class="table-wrap"><table class="data-table"><thead><tr><th>Fecha / Hora</th><th>Plataforma</th><th>Título</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>` +
+        CAL_EVENTS.map(ev => `
+          <tr>
+            <td class="font-mono text-xs">${ev.date} ${ev.time}</td>
+            <td style="text-transform:capitalize;font-weight:600;">${ev.platform}</td>
+            <td>${ev.title}</td>
+            <td><span class="badge">${ev.status}</span></td>
+            <td><button type="button" class="btn btn-secondary btn-sm" onclick='openEventModal(${JSON.stringify(ev)})'>Detalle</button></td>
+          </tr>`).join('') + `</tbody></table></div>`;
+      return;
+    }
+
+    if (calView === 'day') {
+      const ymd = fmtYMD(anchorDate);
+      titleEl.textContent = ymd;
+      const dayEvents = CAL_EVENTS.filter(e => e.date === ymd);
+      mount.innerHTML = `<div class="card-padded flex-col gap-3">` +
+        (dayEvents.length ? dayEvents.map(renderEventCard).join('') : `<div class="empty-state"><h4>Sin publicaciones el ${ymd}</h4><p>Arrastra eventos desde la vista semanal o programa un nuevo clip.</p></div>`) +
+        `</div>`;
+      return;
+    }
+
+    let dates = [];
+    if (calView === 'week') {
+      const start = new Date(anchorDate);
+      start.setDate(start.getDate() - start.getDay());
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        dates.push(d);
+      }
+      titleEl.textContent = `${fmtYMD(dates[0])} — ${fmtYMD(dates[6])}`;
+    } else {
+      const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+      const start = new Date(first);
+      start.setDate(first.getDate() - first.getDay());
+      for (let i = 0; i < 35; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        dates.push(d);
+      }
+      titleEl.textContent = anchorDate.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' });
+    }
+
+    const headerHtml = `<div class="calendar-grid-7" style="background:rgba(9,11,16,0.55);border-bottom:1px solid var(--border-subtle);">` +
+      dayNames.map(n => `<div style="padding:10px;text-align:center;font-size:11.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;">${n}</div>`).join('') +
+      `</div>`;
+
+    const cellsHtml = `<div class="calendar-grid-7">` + dates.map(d => {
+      const ymd = fmtYMD(d);
+      const isToday = ymd === "{{ today_local }}";
+      const evs = CAL_EVENTS.filter(e => e.date === ymd);
+      return `
+        <div class="calendar-cell" data-date="${ymd}"
+             ondragover="event.preventDefault(); this.classList.add('drag-over');"
+             ondragleave="this.classList.remove('drag-over');"
+             ondrop="onDropDate(event, '${ymd}', this)"
+             style="${isToday ? 'background:rgba(99,102,241,0.08);' : ''}">
+          <div class="flex items-center justify-between text-xs" style="margin-bottom:4px;">
+            <span class="${isToday ? 'badge badge-indigo' : 'text-muted font-mono'}">${d.getDate()}</span>
+            <span class="text-xs text-muted">${evs.length ? evs.length + ' post' : ''}</span>
+          </div>
+          ${evs.map(renderEventCard).join('')}
+        </div>`;
+    }).join('') + `</div>`;
+
+    mount.innerHTML = headerHtml + cellsHtml;
+  }
+
+  function onDragEvent(e, jobId, timeStr) {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ jobId, timeStr }));
+  }
+
+  async function onDropDate(e, targetDate, cellEl) {
+    e.preventDefault();
+    cellEl.classList.remove('drag-over');
+    try {
+      const { jobId, timeStr } = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const newIso = `${targetDate}T${timeStr || '10:00'}:00`;
+      const res = await window.clipflowFetch(`/api/jobs/${jobId}/reschedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduled_time: newIso })
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        window.showToast(`Reprogramado para ${targetDate} ${timeStr}`, 'success');
+        setTimeout(() => window.location.reload(), 600);
+      } else {
+        window.showToast(data.detail || 'No se pudo reprogramar este trabajo', 'error');
+      }
+    } catch (err) {
+      window.showToast('Error al reprogramar: ' + err, 'error');
+    }
+  }
+
+  function openEventModal(ev) {
+    document.getElementById('evModalTitle').textContent = ev.title;
+    document.getElementById('evModalBody').innerHTML = `
+      <div class="flex-col gap-3">
+        <div><strong>Plataforma:</strong> ${ev.platform.toUpperCase()} &middot; <span class="badge">${ev.status}</span></div>
+        <div><strong>Horario Local:</strong> <span class="font-mono">${ev.date} ${ev.time} (America/Santo_Domingo)</span></div>
+        ${ev.remote_url ? `<div><a href="${ev.remote_url}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ver publicación remota &rarr;</a></div>` : ''}
+        ${ev.movable ? `
+          <div class="field" style="padding-top:10px;border-top:1px solid var(--border-subtle);">
+            <label class="field-label">Reprogramar manualmente</label>
+            <div class="flex gap-2">
+              <input type="datetime-local" id="modalRescheduleInput" value="${ev.date}T${ev.time}" class="input">
+              <button type="button" class="btn btn-primary btn-sm" onclick="submitManualReschedule('${ev.id}')">Guardar</button>
+            </div>
+          </div>` : ''}
+      </div>`;
+    document.getElementById('eventModal').classList.add('open');
+  }
+
+  async function submitManualReschedule(jobId) {
+    const val = document.getElementById('modalRescheduleInput').value;
+    if (!val) return;
+    const res = await window.clipflowFetch(`/api/jobs/${jobId}/reschedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduled_time: val })
+    });
     const data = await res.json();
-    if (data.ok) {
+    if (res.ok && data.ok) {
+      window.showToast('Horario actualizado correctamente.', 'success');
       window.location.reload();
     } else {
-      alert('Error: ' + data.error);
+      window.showToast(data.detail || 'Error al reprogramar', 'error');
     }
-  } catch (err) {
-    alert('Excepción: ' + err);
   }
-}
+
+  function closeEventModal() {
+    document.getElementById('eventModal').classList.remove('open');
+  }
+
+  document.addEventListener('DOMContentLoaded', renderCalendar);
 </script>
 {% endblock %}

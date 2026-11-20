@@ -427,6 +427,9 @@ def connections_view(
     conn_service = ConnectionService(db)
     connections = conn_service.list_connections()
     connected_count = sum(1 for c in connections if c["status"] == ConnectionStatus.CONNECTED)
+    youtube_redirect_uri = (os.getenv("YOUTUBE_REDIRECT_URI") or "").strip() or str(
+        request.url_for("youtube_oauth_callback")
+    )
     return _render(
         request,
         "connections.html",
@@ -436,6 +439,7 @@ def connections_view(
             "oauth_status": oauth,
             "oauth_provider": provider,
             "oauth_error": oauth_error,
+            "youtube_redirect_uri": youtube_redirect_uri,
         },
     )
 
@@ -656,7 +660,9 @@ def api_youtube_oauth_start(request: Request, db: Session = Depends(get_db)):
             detail="Primero guarda YOUTUBE_CLIENT_ID y YOUTUBE_CLIENT_SECRET en Connected Apps.",
         )
 
-    redirect_uri = str(request.url_for("youtube_oauth_callback"))
+    redirect_uri = (os.getenv("YOUTUBE_REDIRECT_URI") or "").strip() or str(
+        request.url_for("youtube_oauth_callback")
+    )
     state_val = conn_service.create_oauth_state("youtube", redirect_uri)
 
     pub = NativeYouTubePublisher(
@@ -682,8 +688,13 @@ def api_youtube_oauth_callback(
 ):
     """Callback oficial de Google OAuth 2.0: valida estado, canjea código, cifra tokens y verifica canal."""
     if error:
+        friendly_errors = {
+            "access_denied": "Cancelaste el consentimiento en Google. Vuelve a pulsar 'Conectar YouTube' y acepta los permisos solicitados.",
+            "org_internal": "La app de Google Cloud está restringida a una organización interna. Cámbiala a Externo y añade tu correo en Usuarios de prueba.",
+        }
+        err_text = friendly_errors.get(error.strip().lower(), f"Google devolvió el error OAuth: {error}")
         return RedirectResponse(
-            url=f"/connections?oauth=error&provider=youtube&oauth_error={quote(error)}",
+            url=f"/connections?oauth=error&provider=youtube&oauth_error={quote(err_text)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -722,6 +733,8 @@ def api_youtube_oauth_callback(
         expires_in=token_data.get("expires_in"),
         scopes=scopes,
         verify_now=True,
+        client_id=client_id,
+        client_secret=client_secret,
     )
     record_audit(
         db,

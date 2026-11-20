@@ -1,188 +1,180 @@
 {% extends "base.html" %}
+{% from "_icons.html" import platform_icon %}
 
-{% block title %}Queue & Jobs — AutoClip Publisher{% endblock %}
-{% block page_title %}Cola de Publicación & Trabajos Persistentes{% endblock %}
+{% block title %}Queue & Jobs — AutoClip Publisher V2{% endblock %}
+{% block page_title %}Trabajos de Publicación & Cola{% endblock %}
+{% block page_subtitle %}Progreso por etapas, identificadores reales, diagnósticos de error y recuperación controlada{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-
-  <!-- Header Controls -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-    <div>
-      <h3 class="font-semibold text-sm text-white flex items-center">
-        <i class="fa-solid fa-clock-rotate-left text-indigo-400 mr-2"></i> Trabajos de Publicación & Monitor de Estados
-      </h3>
-      <p class="text-xs text-slate-400 mt-0.5">
-        Gestión transaccional persistente en SQLite. 10 estados explícitos con control de idempotencia y backoff exponencial.
-      </p>
+  <!-- Summary & Controls -->
+  <section class="card card-padded flex items-center justify-between flex-wrap gap-3">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab-btn active" onclick="filterQueue('ALL', this)">Todos ({{ counts.total }})</button>
+      <button type="button" class="tab-btn" onclick="filterQueue('QUEUED', this)">En Cola ({{ counts.queued }})</button>
+      <button type="button" class="tab-btn" onclick="filterQueue('PROCESSING', this)">En Curso ({{ counts.processing }})</button>
+      <button type="button" class="tab-btn" onclick="filterQueue('PUBLISHED', this)">Publicados ({{ counts.published }})</button>
+      <button type="button" class="tab-btn" onclick="filterQueue('ATTENTION', this)">Atención ({{ counts.attention }})</button>
     </div>
 
-    <div class="flex items-center space-x-2 text-xs">
-      <span class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">
-        Total: {{ jobs|length }} trabajos
-      </span>
-      <form action="/api/worker/tick" method="post" class="inline">
-        <button type="submit" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-sm transition">
-          <i class="fa-solid fa-play mr-1"></i> Despachar Ahora
-        </button>
-      </form>
+    <div class="flex items-center gap-2">
+      <a href="/audit" class="btn btn-secondary btn-sm">Registro de Auditoría</a>
+      <button type="button" onclick="triggerWorkerTick()" class="btn btn-primary btn-sm">Procesar Cola Ahora</button>
     </div>
-  </div>
+  </section>
 
-  <!-- Jobs Table -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-    <div class="overflow-x-auto">
-      <table class="w-full text-left text-xs text-slate-300">
-        <thead class="bg-slate-950/60 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
-          <tr>
-            <th class="py-3 px-4">ID / Clave Idempotencia</th>
-            <th class="py-3 px-4">Plataforma</th>
-            <th class="py-3 px-4">Título del Draft</th>
-            <th class="py-3 px-4 text-center">Estado</th>
-            <th class="py-3 px-4 text-center">Intentos</th>
-            <th class="py-3 px-4">Programación</th>
-            <th class="py-3 px-4">Último Error / Detalle</th>
-            <th class="py-3 px-4 text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-800/60">
-          {% if jobs %}
+  <!-- Queue Table with Visual Stage Track -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Trabajos de Publicación</h2>
+      <span class="text-xs text-muted">Persistencia SQLite · Idempotencia garantizada</span>
+    </div>
+
+    {% if jobs %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Plataforma / Trabajo</th>
+              <th>Etapa y Progreso</th>
+              <th>ID Remoto / Privacidad</th>
+              <th>Intentos & Horario</th>
+              <th>Diagnóstico / Recuperación</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
             {% for job in jobs %}
-              <tr class="hover:bg-slate-800/30 transition">
-                <td class="py-3 px-4 font-mono text-[11px] text-slate-400">
-                  <div class="font-bold text-slate-300">{{ job.id[:8] }}</div>
-                  <div class="text-[10px] text-slate-500 truncate max-w-[120px]" title="{{ job.idempotency_key }}">
-                    {{ job.idempotency_key[:12] }}...
+              {% set st = job.status %}
+              {% set bucket = 'PUBLISHED' if st == 'PUBLISHED' else ('ATTENTION' if st in ['FAILED','REQUIRES_ACTION','ACTION_REQUIRED','RETRYABLE_ERROR'] else ('PROCESSING' if st in ['UPLOADING','PROCESSING','REMOTE_PROCESSING'] else 'QUEUED')) %}
+              <tr class="queue-row" data-bucket="{{ bucket }}">
+                <td>
+                  <div class="flex items-center gap-2">
+                    {{ platform_icon(job.post_draft.platform if job.post_draft else '', 20) }}
+                    <div style="min-width:0;">
+                      <div class="truncate" style="max-width:210px;font-weight:600;color:var(--text-primary);">
+                        {{ job.post_draft.title if job.post_draft else 'Trabajo ' ~ job.id[:8] }}
+                      </div>
+                      <div class="font-mono text-xs text-muted">{{ job.id[:8] }} &middot; {{ job.post_draft.platform|upper if job.post_draft else 'N/A' }}</div>
+                    </div>
                   </div>
                 </td>
-                <td class="py-3 px-4 font-medium uppercase text-slate-300 flex items-center space-x-1.5 pt-4">
-                  {% if job.post_draft and job.post_draft.platform == 'youtube' %}
-                    <i class="fa-brands fa-youtube text-red-500 text-base"></i>
-                  {% elif job.post_draft and job.post_draft.platform == 'tiktok' %}
-                    <i class="fa-brands fa-tiktok text-cyan-400 text-base"></i>
-                  {% elif job.post_draft and job.post_draft.platform == 'instagram' %}
-                    <i class="fa-brands fa-instagram text-pink-500 text-base"></i>
-                  {% else %}
-                    <i class="fa-solid fa-share text-indigo-400 text-base"></i>
-                  {% endif %}
-                  <span>{{ job.post_draft.platform if job.post_draft else 'N/A' }}</span>
-                </td>
-                <td class="py-3 px-4 font-medium text-white max-w-xs truncate">
-                  {{ job.post_draft.title if job.post_draft else 'Borrador sin título' }}
-                </td>
-                <td class="py-3 px-4 text-center">
-                  {% if job.status == 'PUBLISHED' %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                      PUBLISHED
-                    </span>
-                  {% elif job.status == 'QUEUED' %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                      QUEUED
-                    </span>
-                  {% elif job.status == 'SCHEDULED' %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-                      SCHEDULED
-                    </span>
-                  {% elif job.status == 'UPLOADING' %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-                      UPLOADING
-                    </span>
-                  {% elif job.status in ['PROCESSING', 'REMOTE_PROCESSING'] %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30">
-                      PROCESSING
-                    </span>
-                  {% elif job.status in ['FAILED', 'REMOTE_REJECTED'] %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                      FAILED
-                    </span>
-                  {% elif job.status in ['REQUIRES_ACTION', 'ACTION_REQUIRED'] %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                      ACTION REQ.
-                    </span>
-                  {% elif job.status == 'CANCELLED' %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-500 border border-slate-700">
-                      CANCELLED
-                    </span>
-                  {% else %}
-                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-400">
-                      {{ job.status }}
-                    </span>
-                  {% endif %}
-                </td>
-                <td class="py-3 px-4 text-center font-mono">{{ job.attempt_count }}</td>
-                <td class="py-3 px-4 text-slate-400 text-[11px]">
-                  {% if job.scheduled_at_utc %}
-                    <span class="text-amber-400 font-mono">{{ job.scheduled_at_utc.strftime('%d/%m %H:%M UTC') }}</span>
-                  {% else %}
-                    <span class="text-slate-500">Inmediata</span>
-                  {% endif %}
-                </td>
-                <td class="py-3 px-4 text-slate-400 max-w-xs truncate text-[11px]" title="{{ job.last_error or '' }}">
-                  {{ job.last_error or '-' }}
-                </td>
-                <td class="py-3 px-4 text-right space-x-1.5">
-                  {% if job.status in ['FAILED', 'REQUIRES_ACTION', 'ACTION_REQUIRED', 'RETRYABLE_ERROR'] %}
-                    <button onclick="retryJob('{{ job.id }}')" class="px-2.5 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium" title="Reintentar">
-                      <i class="fa-solid fa-rotate-right mr-1"></i> Reintentar
-                    </button>
-                  {% endif %}
 
-                  {% if job.status in ['QUEUED', 'SCHEDULED', 'READY', 'DRAFT'] %}
-                    <button onclick="cancelJob('{{ job.id }}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 border border-slate-700 text-[11px]" title="Cancelar">
-                      <i class="fa-solid fa-ban"></i>
-                    </button>
-                  {% endif %}
+                <td>
+                  <div class="flex-col gap-2">
+                    <span class="badge {% if st == 'PUBLISHED' %}badge-success{% elif st in ['FAILED','REQUIRES_ACTION','ACTION_REQUIRED'] %}badge-danger{% elif st in ['UPLOADING','PROCESSING','REMOTE_PROCESSING'] %}badge-info{% elif st in ['QUEUED','SCHEDULED'] %}badge-indigo{% endif %}">
+                      {{ st }}
+                    </span>
+                    <div class="stage-track" title="Cola -> Subida -> Procesado -> Publicado">
+                      <span class="stage-bar done"></span>
+                      <span class="stage-bar {% if st in ['UPLOADING','PROCESSING','REMOTE_PROCESSING','PUBLISHED'] %}done{% elif st in ['FAILED','REQUIRES_ACTION','ACTION_REQUIRED'] %}error{% endif %}"></span>
+                      <span class="stage-bar {% if st in ['PROCESSING','REMOTE_PROCESSING','PUBLISHED'] %}done{% elif st == 'UPLOADING' %}active{% endif %}"></span>
+                      <span class="stage-bar {% if st == 'PUBLISHED' %}done{% elif st in ['PROCESSING','REMOTE_PROCESSING'] %}active{% endif %}"></span>
+                    </div>
+                  </div>
+                </td>
 
-                  {% if job.remote_url %}
-                    <a href="{{ job.remote_url }}" target="_blank" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 text-[11px]" title="Ver video">
-                      <i class="fa-solid fa-arrow-up-right-from-square"></i>
-                    </a>
+                <td class="font-mono text-xs">
+                  {% if job.remote_post_id %}
+                    <div style="color:var(--text-primary);font-weight:600;">{{ job.remote_post_id }}</div>
+                  {% else %}
+                    <div class="text-muted">Sin ID remoto aún</div>
                   {% endif %}
+                  {% if job.remote_privacy_status or (job.post_draft and job.post_draft.visibility) %}
+                    <span class="badge" style="margin-top:4px;font-size:10.5px;">{{ (job.remote_privacy_status or job.post_draft.visibility)|upper }}</span>
+                  {% endif %}
+                </td>
+
+                <td class="text-xs">
+                  <div>Intentos: <strong class="font-mono">{{ job.attempt_count }}</strong></div>
+                  <div class="font-mono text-muted" style="margin-top:3px;">
+                    {{ job.scheduled_at_utc.strftime('%d/%m %H:%M UTC') if job.scheduled_at_utc else 'Inmediato' }}
+                  </div>
+                </td>
+
+                <td style="max-width:250px;">
+                  {% if job.last_error %}
+                    <div class="text-xs" style="color:#fda4af;">{{ job.last_error }}</div>
+                    <div class="text-xs text-muted" style="margin-top:3px;">
+                      {% if '401' in job.last_error or 'autoriz' in job.last_error|lower or 'expir' in job.last_error|lower %}
+                        Acción: Re-autoriza la cuenta en <a href="/connections" style="color:var(--accent-indigo-hover);text-decoration:underline;">Connected Apps</a> y luego pulsa Reintentar.
+                      {% else %}
+                        Acción: Verifica el error y usa Reintentar (con protección anti-duplicados).
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <span class="text-xs text-muted">Sin errores registrados</span>
+                  {% endif %}
+                </td>
+
+                <td>
+                  <div class="flex items-center gap-2">
+                    {% if st in ['FAILED', 'REQUIRES_ACTION', 'ACTION_REQUIRED', 'RETRYABLE_ERROR'] %}
+                      <button type="button" onclick="retryJob('{{ job.id }}')" class="btn btn-primary btn-sm">Reintentar</button>
+                    {% endif %}
+                    {% if st in ['QUEUED', 'SCHEDULED', 'READY', 'DRAFT'] %}
+                      <button type="button" onclick="cancelJob('{{ job.id }}')" class="btn btn-danger btn-sm">Cancelar</button>
+                    {% endif %}
+                    {% if job.remote_url %}
+                      <a href="{{ job.remote_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ver</a>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
             {% endfor %}
-          {% else %}
-            <tr>
-              <td colspan="8" class="py-8 text-center text-slate-500">
-                No hay trabajos en la cola.
-              </td>
-            </tr>
-          {% endif %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h4>La cola de publicación está vacía</h4>
+        <p>Cuando envíes o programes un video desde el Publisher, podrás monitorear cada etapa aquí.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
 
-</div>
-
+{% block scripts %}
 <script>
-async function retryJob(jobId) {
-  try {
-    const res = await fetch(`/api/jobs/${jobId}/retry`, { method: 'POST' });
-    const data = await res.json();
-    if (data.ok) {
-      window.location.reload();
-    } else {
-      alert('Error: ' + data.error);
-    }
-  } catch (err) {
-    alert('Excepción: ' + err);
+  function filterQueue(bucket, btn) {
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.queue-row').forEach(r => {
+      r.classList.toggle('hidden', bucket !== 'ALL' && r.dataset.bucket !== bucket);
+    });
   }
-}
 
-async function cancelJob(jobId) {
-  if (!confirm('¿Deseas cancelar este trabajo?')) return;
-  try {
-    const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+  async function retryJob(id) {
+    const res = await window.clipflowFetch(`/api/jobs/${id}/retry`, { method: 'POST' });
     const data = await res.json();
-    if (data.ok) {
+    if (res.ok && data.ok) {
+      window.showToast('Trabajo reencolado con reconciliación anti-duplicados.', 'success');
       window.location.reload();
     } else {
-      alert('Error: ' + data.error);
+      window.showToast(data.detail || 'No se pudo reintentar', 'error');
     }
-  } catch (err) {
-    alert('Excepción: ' + err);
   }
-}
+
+  async function cancelJob(id) {
+    if (!confirm('¿Cancelar esta tarea local pendiente? (Nunca elimina videos ya publicados en YouTube)')) return;
+    const res = await window.clipflowFetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      window.showToast('Trabajo cancelado.', 'success');
+      window.location.reload();
+    } else {
+      window.showToast(data.detail || 'No se pudo cancelar', 'error');
+    }
+  }
+
+  async function triggerWorkerTick() {
+    const res = await window.clipflowFetch('/api/worker/tick', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      window.showToast(data.processed_job_id ? 'Ciclo ejecutado sobre trabajo ' + data.processed_job_id.slice(0,8) : 'No había trabajos vencidos en cola.', 'info');
+      setTimeout(() => window.location.reload(), 600);
+    } else {
+      window.showToast(data.detail || 'Error al ejecutar worker', 'error');
+    }
+  }
 </script>
 {% endblock %}

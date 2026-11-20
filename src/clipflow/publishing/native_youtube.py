@@ -110,7 +110,24 @@ class NativeYouTubePublisher(BasePublisher):
         }
         resp = requests.post(YOUTUBE_TOKEN_URL, data=payload, timeout=15.0)
         if resp.status_code != 200:
-            raise RuntimeError(redact_secrets(f"Error al canjear código OAuth (HTTP {resp.status_code})."))
+            err_code = ""
+            try:
+                err_code = (resp.json().get("error") or "").strip().lower()
+            except Exception:
+                pass
+            friendly_map = {
+                "redirect_uri_mismatch": (
+                    f"La URI de redirección ({self.redirect_uri}) no coincide con la registrada en Google Cloud Console."
+                ),
+                "invalid_client": "Client ID o Client Secret de Google inválidos. Revisa tus credenciales OAuth.",
+                "invalid_grant": "El código de autorización expiró o ya fue utilizado. Vuelve a pulsar 'Conectar YouTube'.",
+                "unauthorized_client": "La aplicación OAuth de Google no está autorizada para este flujo.",
+            }
+            msg = friendly_map.get(
+                err_code,
+                f"Error al canjear código OAuth con Google (HTTP {resp.status_code}{': ' + err_code if err_code else ''}).",
+            )
+            raise RuntimeError(redact_secrets(msg))
 
         data = resp.json()
         self.access_token = data.get("access_token", "")

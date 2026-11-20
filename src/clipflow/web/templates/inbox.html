@@ -1,245 +1,192 @@
 {% extends "base.html" %}
+{% from "_icons.html" import platform_icon %}
 
-{% block title %}Inbox & Comentarios — AutoClip Publisher{% endblock %}
-{% block page_title %}Inbox, Mensajes & Moderación{% endblock %}
+{% block title %}Inbox — AutoClip Publisher V2{% endblock %}
+{% block page_title %}Inbox & Moderación{% endblock %}
+{% block page_subtitle %}Comentarios reales de plataformas autorizadas y reglas de auto-respuesta con cooldown{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-
-  <!-- Top Controls & Auto-Reply Rules Toggle -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
-    <div>
-      <h3 class="font-semibold text-sm text-white flex items-center">
-        <i class="fa-solid fa-inbox text-indigo-400 mr-2"></i> Bandeja Unificada de Comentarios
-      </h3>
-      <p class="text-xs text-slate-400 mt-0.5">
-        Gestión centralizada de comentarios reales en YouTube y redes autorizadas mediante llamadas oficiales.
-      </p>
-    </div>
-
-    <div class="flex items-center space-x-3">
-      <button onclick="openAutoReplyModal()" class="px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold border border-indigo-500/30 transition flex items-center">
-        <i class="fa-solid fa-robot mr-1.5"></i> Configurar Respuestas Automáticas
-      </button>
-    </div>
-  </div>
-
-  <!-- Auto-Reply Status Banner -->
-  <div class="p-3 bg-slate-900/60 border border-slate-800 rounded-lg flex items-center justify-between text-xs text-slate-400">
-    <div class="flex items-center space-x-2">
-      <span class="w-2 h-2 rounded-full {% if auto_reply_rule and auto_reply_rule.is_enabled %}bg-emerald-500{% else %}bg-slate-600{% endif %}"></span>
-      <span>
-        Respuestas automáticas: 
-        <strong class="{% if auto_reply_rule and auto_reply_rule.is_enabled %}text-emerald-400{% else %}text-slate-500{% endif %}">
-          {{ 'ACTIVAS' if (auto_reply_rule and auto_reply_rule.is_enabled) else 'DESACTIVADAS' }}
-        </strong>
+  <section class="banner">
+    <div class="flex items-center flex-wrap gap-3 text-sm">
+      <span class="badge {% if youtube_connected %}badge-success{% else %}badge-warn{% endif %}">
+        <span class="status-dot {% if youtube_connected %}healthy{% else %}degraded{% endif %}"></span>
+        YouTube Inbox: {{ 'Autorizado' if youtube_connected else 'Requiere conexión OAuth' }}
       </span>
-      {% if auto_reply_rule and auto_reply_rule.is_enabled %}
-        <span class="text-slate-500">&middot; Cooldown: {{ auto_reply_rule.cooldown_minutes }} min por usuario</span>
-      {% endif %}
+      <span class="badge {% if auto_reply_rule and auto_reply_rule.is_enabled %}badge-success{% endif %}">
+        Auto-Respuestas: {{ 'ACTIVAS' if (auto_reply_rule and auto_reply_rule.is_enabled) else 'DESACTIVADAS' }}
+      </span>
     </div>
-    <form action="/api/inbox/auto-reply/toggle" method="post" class="inline">
-      <button type="submit" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
-        {{ 'Desactivar' if (auto_reply_rule and auto_reply_rule.is_enabled) else 'Activar' }}
-      </button>
-    </form>
-  </div>
+    <div class="flex items-center gap-2">
+      <form action="/api/inbox/auto-reply/toggle" method="post" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn btn-secondary btn-sm">
+          {{ 'Desactivar Auto-Respuesta' if (auto_reply_rule and auto_reply_rule.is_enabled) else 'Activar Auto-Respuesta' }}
+        </button>
+      </form>
+      <button type="button" onclick="openAutoReplyModal()" class="btn btn-primary btn-sm">Configurar Reglas</button>
+    </div>
+  </section>
 
-  <!-- Comments Feed -->
-  <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-    <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-      <h4 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-        Comentarios Recibidos ({{ comments|length }})
-      </h4>
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Comentarios Recibidos ({{ comments|length }})</h2>
+      <div class="tabs">
+        <button type="button" class="tab-btn active" onclick="filterInbox('ALL', this)">Todos</button>
+        <button type="button" class="tab-btn" onclick="filterInbox('PENDING', this)">Pendientes</button>
+        <button type="button" class="tab-btn" onclick="filterInbox('REPLIED', this)">Respondidos</button>
+      </div>
     </div>
 
-    <div class="divide-y divide-slate-800/60">
-      {% if comments %}
+    {% if comments %}
+      <div class="flex-col">
         {% for c in comments %}
-          <div class="p-5 hover:bg-slate-800/20 transition flex flex-col md:flex-row md:items-start justify-between gap-4">
-            <div class="space-y-1.5 flex-1">
-              <div class="flex items-center space-x-2">
-                <span class="font-bold text-xs text-white">{{ c.author_name }}</span>
-                <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 uppercase font-mono">
-                  {{ c.platform }}
-                </span>
-                <span class="text-[10px] text-slate-500">{{ c.published_at_utc.strftime('%d/%m/%Y %H:%M') if c.published_at_utc else '' }}</span>
+          <article class="inbox-item" data-status="{{ c.status }}" style="padding:16px 20px;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+            <div class="flex-col gap-2" style="flex:1;min-width:240px;">
+              <div class="flex items-center gap-2">
+                {{ platform_icon(c.platform, 16) }}
+                <strong style="color:var(--text-primary);">{{ c.author_name }}</strong>
+                <span class="badge">{{ c.platform }}</span>
+                <span class="text-xs text-muted font-mono">{{ c.published_at_utc.strftime('%d/%m/%Y %H:%M') if c.published_at_utc else '' }}</span>
               </div>
-              <p class="text-xs text-slate-300 leading-relaxed">{{ c.content }}</p>
-
+              <p style="margin:0;color:var(--text-secondary);">{{ c.content }}</p>
               {% if c.reply_content %}
-                <div class="mt-3 pl-3 border-l-2 border-indigo-500 bg-slate-950/40 p-2.5 rounded-r-lg text-xs">
-                  <div class="text-[10px] font-semibold text-indigo-400 mb-0.5">
-                    <i class="fa-solid fa-reply mr-1"></i> Respuesta enviada:
-                  </div>
-                  <p class="text-slate-300">{{ c.reply_content }}</p>
+                <div style="padding:10px 12px;border-left:3px solid var(--accent-indigo);background:var(--bg-input);border-radius:0 8px 8px 0;font-size:12.5px;">
+                  <strong style="color:var(--accent-indigo-hover);">Respuesta oficial:</strong> {{ c.reply_content }}
                 </div>
               {% endif %}
             </div>
-
-            <div class="flex items-center space-x-2 flex-shrink-0">
+            <div class="flex items-center">
               {% if c.status == 'PENDING' %}
-                <button onclick="openReplyModal('{{ c.id }}', '{{ c.author_name }}')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition flex items-center">
-                  <i class="fa-solid fa-reply mr-1"></i> Responder
-                </button>
+                <button type="button" onclick="openReplyModal('{{ c.id }}', {{ c.author_name|tojson }})" class="btn btn-primary btn-sm">Responder</button>
               {% else %}
-                <span class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <i class="fa-solid fa-check mr-1"></i> Respondido
-                </span>
+                <span class="badge badge-success">Respondido</span>
               {% endif %}
             </div>
-          </div>
+          </article>
         {% endfor %}
-      {% else %}
-        <div class="p-12 text-center text-slate-500 text-xs">
-          <i class="fa-solid fa-comments text-4xl mb-3 text-slate-600 block"></i>
-          No hay comentarios pendientes. Conecta tu canal de YouTube en <a href="/connections" class="text-indigo-400 hover:underline">Connected Apps</a> para sincronizar interacciones reales.
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h4>Bandeja sin comentarios pendientes</h4>
+        <p>Cuando conectes tu canal oficial de YouTube y sincronices interacciones reales, aparecerán aquí para responder desde el dashboard.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <!-- Reply Modal -->
+  <div id="replyModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="replyModalTitle" class="card-title">Responder Comentario</h3>
+        <button type="button" onclick="closeReplyModal()" class="btn btn-ghost btn-icon">&times;</button>
+      </div>
+      <form onsubmit="submitReply(event)">
+        <div class="modal-body">
+          <input type="hidden" id="replyCommentId">
+          <div class="field">
+            <label for="replyText" class="field-label">Mensaje de respuesta oficial</label>
+            <textarea id="replyText" required class="textarea" placeholder="Escribe tu respuesta pública..."></textarea>
+          </div>
         </div>
-      {% endif %}
+        <div class="modal-footer">
+          <button type="button" onclick="closeReplyModal()" class="btn btn-secondary btn-sm">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Enviar Respuesta</button>
+        </div>
+      </form>
     </div>
   </div>
 
-</div>
-
-<!-- Modal para Responder Comentario Manualmente -->
-<div id="replyModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-      <h3 id="replyModalTitle" class="text-sm font-bold text-white">Responder Comentario</h3>
-      <button onclick="closeReplyModal()" class="text-slate-500 hover:text-slate-300">
-        <i class="fa-solid fa-xmark text-lg"></i>
-      </button>
+  <!-- Auto-Reply Config Modal -->
+  <div id="autoReplyModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="card-title">Reglas de Auto-Respuesta</h3>
+        <button type="button" onclick="closeAutoReplyModal()" class="btn btn-ghost btn-icon">&times;</button>
+      </div>
+      <form onsubmit="submitAutoReplyConfig(event)">
+        <div class="modal-body">
+          <div class="field">
+            <label for="autoKeywords" class="field-label">Palabras clave (separadas por coma)</label>
+            <input type="text" id="autoKeywords" value="{{ auto_reply_rule.keyword_filter if auto_reply_rule else '' }}" class="input" placeholder="genial, enlace, info">
+          </div>
+          <div class="field">
+            <label for="autoCooldown" class="field-label">Cooldown por usuario (minutos, mínimo 5)</label>
+            <input type="number" id="autoCooldown" min="5" value="{{ auto_reply_rule.cooldown_minutes if auto_reply_rule else 60 }}" class="input">
+          </div>
+          <div class="field">
+            <label for="autoTemplate" class="field-label">Plantilla (usa {author})</label>
+            <textarea id="autoTemplate" required class="textarea">{{ auto_reply_rule.reply_template if auto_reply_rule else '¡Gracias por comentar, {author}!' }}</textarea>
+          </div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="autoEnabled" {% if auto_reply_rule and auto_reply_rule.is_enabled %}checked{% endif %}>
+            <span>Habilitar respuestas automáticas</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="closeAutoReplyModal()" class="btn btn-secondary btn-sm">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Guardar Reglas</button>
+        </div>
+      </form>
     </div>
-
-    <form id="replyForm" onsubmit="submitReply(event)" class="mt-4 space-y-3">
-      <input type="hidden" id="replyCommentId" name="comment_id">
-      <div>
-        <label class="block text-xs font-medium text-slate-300 mb-1">Mensaje de respuesta oficial</label>
-        <textarea id="replyText" name="reply_text" rows="3" required placeholder="Escribe tu respuesta pública..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"></textarea>
-      </div>
-      <div class="pt-3 border-t border-slate-800 flex justify-end space-x-2">
-        <button type="button" onclick="closeReplyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium">Cancelar</button>
-        <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md">Enviar Respuesta</button>
-      </div>
-    </form>
   </div>
-</div>
-
-<!-- Modal Configuración de Auto-Respuestas -->
-<div id="autoReplyModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
-    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-      <h3 class="text-sm font-bold text-white">Reglas de Respuestas Automáticas</h3>
-      <button onclick="closeAutoReplyModal()" class="text-slate-500 hover:text-slate-300">
-        <i class="fa-solid fa-xmark text-lg"></i>
-      </button>
-    </div>
-
-    <form id="autoReplyForm" onsubmit="submitAutoReplyConfig(event)" class="mt-4 space-y-4">
-      <div>
-        <label class="block text-xs font-medium text-slate-300 mb-1">Palabras Clave Filtro (separadas por coma, vacío para todas)</label>
-        <input type="text" id="autoKeywords" name="keyword_filter" value="{{ auto_reply_rule.keyword_filter if auto_reply_rule else '' }}" placeholder="p. ej. genial, información, gracias, enlace" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
-      </div>
-
-      <div>
-        <label class="block text-xs font-medium text-slate-300 mb-1">Cooldown de Protección por Usuario (Minutos)</label>
-        <input type="number" id="autoCooldown" name="cooldown_minutes" value="{{ auto_reply_rule.cooldown_minutes if auto_reply_rule else 60 }}" min="5" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
-        <span class="text-[10px] text-slate-500 mt-1 block">Evita enviar múltiples respuestas automáticas al mismo usuario en esa ventana.</span>
-      </div>
-
-      <div>
-        <label class="block text-xs font-medium text-slate-300 mb-1">Plantilla de Respuesta</label>
-        <textarea id="autoTemplate" name="reply_template" rows="3" required placeholder="¡Gracias por comentar, {author}! Más detalles en el canal." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">{{ auto_reply_rule.reply_template if auto_reply_rule else '¡Muchas gracias por tu comentario, {author}!' }}</textarea>
-        <span class="text-[10px] text-slate-500 mt-1 block">Usa <code>{author}</code> para insertar el nombre del usuario dinámicamente.</span>
-      </div>
-
-      <div class="flex items-center space-x-2">
-        <input type="checkbox" id="autoEnabled" name="is_enabled" {% if auto_reply_rule and auto_reply_rule.is_enabled %}checked{% endif %} class="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-indigo-500">
-        <label for="autoEnabled" class="text-xs text-slate-300 font-medium">Habilitar respuestas automáticas activas</label>
-      </div>
-
-      <div class="pt-3 border-t border-slate-800 flex justify-end space-x-2">
-        <button type="button" onclick="closeAutoReplyModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium">Cancelar</button>
-        <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md">Guardar Reglas</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-function openReplyModal(commentId, authorName) {
-  document.getElementById('replyCommentId').value = commentId;
-  document.getElementById('replyModalTitle').innerText = 'Responder a ' + authorName;
-  document.getElementById('replyText').value = '';
-  document.getElementById('replyModal').classList.remove('hidden');
-}
+  function filterInbox(st, btn) {
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.inbox-item').forEach(el => {
+      el.classList.toggle('hidden', st !== 'ALL' && el.dataset.status !== st);
+    });
+  }
 
-function closeReplyModal() {
-  document.getElementById('replyModal').classList.add('hidden');
-}
+  function openReplyModal(id, author) {
+    document.getElementById('replyCommentId').value = id;
+    document.getElementById('replyModalTitle').textContent = 'Responder a ' + author;
+    document.getElementById('replyText').value = '';
+    document.getElementById('replyModal').classList.add('open');
+  }
+  function closeReplyModal() { document.getElementById('replyModal').classList.remove('open'); }
+  function openAutoReplyModal() { document.getElementById('autoReplyModal').classList.add('open'); }
+  function closeAutoReplyModal() { document.getElementById('autoReplyModal').classList.remove('open'); }
 
-function openAutoReplyModal() {
-  document.getElementById('autoReplyModal').classList.remove('hidden');
-}
-
-function closeAutoReplyModal() {
-  document.getElementById('autoReplyModal').classList.add('hidden');
-}
-
-async function submitReply(e) {
-  e.preventDefault();
-  const form = document.getElementById('replyForm');
-  const commentId = document.getElementById('replyCommentId').value;
-  const replyText = document.getElementById('replyText').value;
-
-  try {
-    const res = await fetch(`/api/inbox/reply/${commentId}`, {
+  async function submitReply(e) {
+    e.preventDefault();
+    const id = document.getElementById('replyCommentId').value;
+    const text = document.getElementById('replyText').value;
+    const res = await window.clipflowFetch(`/api/inbox/reply/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reply_text: replyText })
+      body: JSON.stringify({ reply_text: text })
     });
     const data = await res.json();
-    if (data.ok) {
-      alert('Respuesta enviada con éxito.');
+    if (res.ok && data.ok) {
+      window.showToast('Respuesta enviada correctamente.', 'success');
       window.location.reload();
     } else {
-      alert('Error: ' + data.error);
+      window.showToast(data.error || data.detail || 'Error al responder', 'error');
     }
-  } catch (err) {
-    alert('Excepción: ' + err);
   }
-}
 
-async function submitAutoReplyConfig(e) {
-  e.preventDefault();
-  const form = document.getElementById('autoReplyForm');
-  const formData = new FormData(form);
-
-  const payload = {
-    keyword_filter: formData.get('keyword_filter'),
-    cooldown_minutes: parseInt(formData.get('cooldown_minutes') || '60'),
-    reply_template: formData.get('reply_template'),
-    is_enabled: document.getElementById('autoEnabled').checked
-  };
-
-  try {
-    const res = await fetch('/api/inbox/auto-reply/config', {
+  async function submitAutoReplyConfig(e) {
+    e.preventDefault();
+    const res = await window.clipflowFetch('/api/inbox/auto-reply/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        keyword_filter: document.getElementById('autoKeywords').value,
+        cooldown_minutes: parseInt(document.getElementById('autoCooldown').value || '60', 10),
+        reply_template: document.getElementById('autoTemplate').value,
+        is_enabled: document.getElementById('autoEnabled').checked
+      })
     });
-    const data = await res.json();
-    if (data.ok) {
-      alert('Reglas guardadas exitosamente.');
+    if (res.ok) {
+      window.showToast('Reglas de auto-respuesta guardadas.', 'success');
       window.location.reload();
     } else {
-      alert('Error al guardar reglas.');
+      window.showToast('No se pudieron guardar las reglas.', 'error');
     }
-  } catch (err) {
-    alert('Excepción: ' + err);
   }
-}
 </script>
 {% endblock %}

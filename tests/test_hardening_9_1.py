@@ -133,6 +133,7 @@ def test_secret_redaction_and_cli_store_stdin_separation(monkeypatch, tmp_path: 
     # Verificar que cli_store acepta client_id + client_secret por stdin sin imprimir secretos
     db_file = tmp_path / "cli_store_test.db"
     monkeypatch.setenv("CLIPFLOW_DATABASE_URL", f"sqlite:///{db_file.as_posix()}")
+    monkeypatch.setattr("clipflow.config._active_settings", None)
     monkeypatch.setattr("clipflow.db._engine", None)
     monkeypatch.setattr("clipflow.db._SessionFactory", None)
 
@@ -178,9 +179,14 @@ def test_mock_mode_strictly_blocked_in_production(monkeypatch, db_session: Sessi
 # -----------------------------------------------------------------------------
 # 4. Flujo OAuth 2.0 completo (estado de un solo uso + callback + cifrado)
 # -----------------------------------------------------------------------------
-def test_google_oauth_state_validation_and_callback_flow(monkeypatch, db_session: Session):
+def test_google_oauth_state_validation_and_callback_flow(monkeypatch, tmp_path: Path):
     token = "oauth-owner-token-1234567890abcdef"
     monkeypatch.setenv("OWNER_TOKEN", token)
+    db_file = tmp_path / "oauth_flow.db"
+    monkeypatch.setenv("CLIPFLOW_DATABASE_URL", f"sqlite:///{db_file.as_posix()}")
+    monkeypatch.setattr("clipflow.config._active_settings", None)
+    monkeypatch.setattr("clipflow.db._engine", None)
+    monkeypatch.setattr("clipflow.db._SessionFactory", None)
     init_db()
 
     # Guardar client_id y client_secret en la BD real usada por FastAPI
@@ -357,6 +363,7 @@ def test_analytics_returns_sin_datos_when_no_real_api_data(monkeypatch, tmp_path
     monkeypatch.setenv("OWNER_TOKEN", token)
     db_file = tmp_path / "analytics_real.db"
     monkeypatch.setenv("CLIPFLOW_DATABASE_URL", f"sqlite:///{db_file.as_posix()}")
+    monkeypatch.setattr("clipflow.config._active_settings", None)
     monkeypatch.setattr("clipflow.db._engine", None)
     monkeypatch.setattr("clipflow.db._SessionFactory", None)
     init_db()
