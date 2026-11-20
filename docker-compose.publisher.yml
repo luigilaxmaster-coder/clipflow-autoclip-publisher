@@ -1,4 +1,4 @@
-version: "3.8"
+name: autoclip-publisher
 
 services:
   # Base de datos PostgreSQL para Postiz

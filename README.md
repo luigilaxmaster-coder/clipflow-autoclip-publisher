@@ -1,184 +1,143 @@
-# ClipFlow — AutoClip Publisher
+# AutoClip Publisher — Personal Edition
 
-> **Sistema de orquestación, validación multimedia y publicación automatizada de clips verticales (9:16) para YouTube Shorts y TikTok, construido sobre el motor de [AutoClip](https://github.com/zhouxiaoka/autoclip).**
-
----
-
-## 🚀 Características Principales
-
-1. **Motor de Corte Nativo AutoClip:** Utiliza el análisis semántico de Studio, transcripción ASR local con Whisper y renderizado de video 9:16 con subtítulos dinámicos integrados.
-2. **Control de Calidad Estricto (MediaQA):** Valida cada MP4 generado con `ffprobe` (duración, ratio 9:16, códecs de video H.264 y audio AAC, verificación de pistas y ausencia de corrupción).
-3. **Metadatos Adaptados por Plataforma:**
-   - **YouTube Shorts:** Título con límite de 100 caracteres, descripción estructurada con `#Shorts` y hashtags de nicho.
-   - **TikTok:** Copy conciso optimizado para feed vertical con hashtags virales (`#fyp`, `#parati`).
-4. **Publicación y Programación Segura con Upload-Post:**
-   - Soporte directo de variantes de salida Studio sin re-renderizado (`output_variant_id`).
-   - Privacidad estricta por defecto: YouTube en `private` y TikTok en `SELF_ONLY`.
-   - Idempotencia garantizada por hash para evitar duplicados en reinicios o caídas.
-   - Reconciliación asíncrona real y seguimiento de estados remotos.
-5. **Cola Durable & Recuperación de Errores:**
-   - Worker persistente con SQLite local y transacciones atómicas.
-   - Reintentos exponenciales con jitter para límites de tasa (HTTP 429) y errores transitorios.
-   - Preservación de éxito independiente si una plataforma falla.
-6. **Panel Web de Administración:**
-   - Interfaz visual moderna (FastAPI + Tailwind CSS) para monitorear proyectos, ver previsualizaciones de video en formato 9:16, revisar métricas de QA y aprobar publicaciones.
+> **Plataforma privada y personal de publicación, programación y gestión multicanal para redes sociales (YouTube Shorts, TikTok, Instagram Reels, X, Threads, LinkedIn, Bluesky, Telegram y más), integrada directamente sobre el motor de [AutoClip](https://github.com/zhouxiaoka/autoclip) y compatible con Postiz autohospedado.**
 
 ---
 
-## 🛠️ Instalación en Windows
+## 🎯 Enfoque y Filosofía de Diseño
 
-### Requisitos Previos
-- Windows 10/11 x64
-- Python 3.10 o superior (recomendado CPython 3.11)
-- FFmpeg y FFprobe en el PATH del sistema
-- Gestor `uv` (recomendado)
+- **100% Personal & Privado:** Diseñado exclusivamente para el uso personal de un propietario. Sin suscripciones, pagos, facturación, Stripe ni funciones multiempresa.
+- **Soberanía de Datos & Cifrado Local:** Todas las credenciales, claves API y tokens de acceso OAuth se almacenan cifrados localmente mediante **Fernet (AES-128-CBC / SHA-256 HMAC)** con clave persistida en `data/.secret.key`.
+- **Motor Híbrido Desacoplado:** Soporta publicación nativa directa (Google OAuth 2.0 / YouTube Data API v3), integración con el motor autohospedado **Postiz (AGPL-3.0)** y retrocompatibilidad con Upload-Post.
+- **Procesamiento Local FFmpeg:** Control estricto de calidad vertical 9:16 con `ffprobe` y generación de miniaturas locales sin depender de servicios SaaS externos.
+- **Transparencia y Veracidad:** No se inventan métricas ni se simulan aprobaciones. Cada plataforma refleja su estado real de autorización y sus límites oficiales documentados.
 
-### Paso 1: Configurar el Entorno
+---
+
+## 🖥️ Las 10 Secciones del Dashboard
+
+El panel de administración cuenta con una interfaz moderna y responsiva construida con FastAPI, Jinja2 y Tailwind CSS, accesible en `http://127.0.0.1:8000`:
+
+1. **Overview (`/`):** Métricas generales, estado del motor local de cortes, proyectos recientes de AutoClip y flujo de publicaciones.
+2. **Connected Apps (`/connections`):** Centro de gestión para los **18 proveedores integrados** (14 redes sociales + 4 sistemas de almacenamiento en la nube y disco local) con pruebas de diagnóstico en vivo.
+3. **Publisher (`/publisher`):** Creación multired con previsualización vertical 9:16, optimización de metadatos (límite estricto de 100 caracteres para YouTube Shorts), selección de privacidad y programación.
+4. **Calendar (`/calendar`):** Calendario editorial visual en zona horaria `America/Santo_Domingo` (UTC-4), reprogramación y cancelación.
+5. **Media Library (`/media-library`):** Biblioteca central que indexa automáticamente los renders terminados de AutoClip sin duplicar espacio en disco, con miniaturas FFmpeg.
+6. **Analytics (`/analytics`):** Estadísticas reales recuperadas mediante llamadas oficiales (vistas, me gusta, comentarios, engagement) e integración de la *Fórmula Ganadora* de AutoClip.
+7. **Inbox (`/inbox`):** Lectura de comentarios y respuestas oficiales directas (YouTube Data API v3), más un motor de auto-respuestas con cooldown de seguridad por usuario y filtros por palabra clave.
+8. **Automations (`/automations`):** Reglas para auto-aprobar clips que superen MediaQA, distribución en mejores horarios (10:00 AM, 3:00 PM, 8:00 PM) y generación de títulos de alta retención.
+9. **Queue & Jobs (`/queue`):** Monitor de cola persistente en SQLite con **10 estados explícitos**, reintentos con backoff exponencial, jitter y reconciliación anti-duplicados.
+10. **Settings (`/settings`):** Configuración de token maestro de propietario, estado del cifrado Fernet, creación y restauración de copias de seguridad ZIP verificadas y diagnósticos de salud del sistema.
+
+---
+
+## 🔌 Matriz de los 18 Conectores
+
+| Proveedor | Tipo | Protocolo / Autenticación | Capacidades Principales |
+|---|---|---|---|
+| **YouTube** | Social | Google OAuth 2.0 (v3) | Shorts 9:16, Subida resumible, Miniaturas, Comentarios, Analíticas (Nov 2026: público/oculto permitido en apps dev). |
+| **TikTok** | Social | Content Posting API | Direct Post, Videos verticales, Borrador en bandeja de entrada (`SELF_ONLY` en apps personales). |
+| **Instagram** | Social | Meta Graph API | Reels 9:16, Carruseles, Comentarios (Requiere cuenta Profesional vinculada a Página). |
+| **Facebook Pages** | Social | Meta Graph API | Publicación en Páginas, Reels, Métricas de interacción. |
+| **Threads** | Social | Threads API | Videos cortos, Publicaciones de texto, Respuestas. |
+| **X (Twitter)** | Social | OAuth 2.0 / API v2 | Publicación de clips, Tweets (Límite 280 caracteres, cuota Free Tier). |
+| **LinkedIn** | Social | OAuth 2.0 / Community API | Publicación en perfiles personales y páginas corporativas. |
+| **Pinterest** | Social | Pinterest API v5 | Idea Pins, Video Pins con selección de tablero (`board_id`). |
+| **Bluesky** | Social | AT Protocol | Publicación descentralizada mediante App Password segura. |
+| **Reddit** | Social | OAuth 2.0 Script | Envío de videos a subreddits propios o autorizados. |
+| **Telegram** | Social | Bot API | Envío de videos verticales a canales y grupos mediante Bot Token. |
+| **Discord** | Social | Webhooks / Bot API | Publicación automatizada en canales de Discord. |
+| **WordPress** | Social | REST API | Publicación de entradas y multimedia con Application Passwords. |
+| **Google Business** | Social | Google Business Profile API | Publicaciones locales y actualizaciones multimedia para empresas. |
+| **Google Drive** | Ingesta | Google Drive API v3 | Ingesta automática de videos largos y podcasts almacenados en la nube. |
+| **OneDrive** | Ingesta | Microsoft Graph API | Ingesta desde carpetas de OneDrive personal o empresarial. |
+| **Dropbox** | Ingesta | Dropbox API | Descarga e importación directa de grabaciones. |
+| **Carpeta Local** | Ingesta | Local Storage | Monitoreo directo en disco o red LAN de archivos `.mp4`, `.mov`, `.mkv`. |
+
+---
+
+## ⚙️ Máquina de Estados de Publicación
+
+Cada trabajo transita por estados persistentes explícitos para garantizar idempotencia y tolerancia a fallos:
+
+```
+[DRAFT] ──> [READY] ──> [SCHEDULED] ──> [QUEUED] ──> [UPLOADING] ──> [PROCESSING] ──> [PUBLISHED]
+                                            │                                │
+                                            ▼                                ▼
+                                  [RETRYABLE_ERROR]                  [REQUIRES_ACTION]
+                                            │                                │
+                                            ▼                                ▼
+                                    [Reintento Backoff]              [Pausa / Token Expirado]
+```
+
+- **Prevención de Duplicados:** Cada trabajo genera una clave única determinista (`idempotency_key`). Antes de reintentar una subida incierta, el worker consulta el estado remoto.
+- **Pausa Automática:** Ante errores HTTP 401 (`unauthorized`, `token_expired`), el conector pasa a `EXPIRED` y los trabajos pendientes para ese canal se pausan en `REQUIRES_ACTION` para evitar consumir cuotas inútilmente.
+
+---
+
+## 🚀 Inicio y Operación en Windows
+
+### 1. Iniciar el Dashboard y el Worker
 Desde PowerShell:
 ```powershell
-# Ejecutar script de configuración automatizada
-.\scripts\setup-windows.ps1
+.\scripts\run-publisher.ps1
+```
+Abre tu navegador en: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+
+### 2. Configurar Conexión Oficial de YouTube (Seguro y Local)
+```powershell
+.\scripts\set-youtube-credentials.ps1
+```
+Solicita interactivamente el Client ID, Client Secret y Refresh Token de forma segura (sin eco en pantalla ni guardado en texto plano).
+
+### 3. Ejecutar Worker Persistente en Segundo Plano
+```powershell
+.\scripts\run-publisher.ps1 -WorkerOnly
 ```
 
-O manualmente:
+### 4. Crear Copia de Seguridad Verificada
 ```powershell
-uv venv --python 3.11 .venv
-.\.venv\Scripts\Activate.ps1
-uv pip install -r ..\autoclip-upstream\requirements.txt
-uv pip install --no-deps -e ..\autoclip-upstream
-uv pip install faster-whisper
-uv pip install -e .
+.\scripts\backup-database.ps1
 ```
+Genera un archivo `.zip` en `data/backups/` con la base de datos SQLite y las claves de cifrado.
 
-### Paso 2: Verificar el Entorno
+### 5. Restaurar Copia de Seguridad
 ```powershell
-clipflow doctor
+.\scripts\restore-database.ps1
 ```
+Verifica la integridad física del ZIP y de SQLite (`PRAGMA integrity_check`) antes de aplicar la restauración, preservando un respaldo previo de rollback.
 
 ---
 
-## 📖 Uso de la CLI `clipflow`
+## 🐳 Despliegue Opcional con Docker Compose (Postiz + AutoClip)
 
-### Diagnóstico de Sistema
+Si dispones de Docker Desktop en Windows o despliegas en un servidor local Linux:
 ```powershell
-clipflow doctor
+# Validar configuración
+docker compose -f docker-compose.publisher.yml config
+
+# Iniciar Postiz, PostgreSQL, Redis, Temporal y AutoClip Publisher
+docker compose -f docker-compose.publisher.yml up -d --build
 ```
-
-### Listar Perfiles de Upload-Post
-```powershell
-clipflow accounts
-```
-
-### Procesar un Video y Generar Clips
-```powershell
-clipflow create --source "C:\Videos\entrevista.mp4" --platform youtube_shorts --platform tiktok --portrait-style podcast
-```
-*Opciones adicionales:*
-- `--srt "C:\Videos\entrevista.srt"`: Subtítulos manuales pre-sincronizados.
-- `--template classic`: Estilo de maquetación (classic, editorial, street, news, cinema).
-- `--max-clips 10`: Número máximo de clips a seleccionar.
-
-### Consultar Proyectos y Clips
-```powershell
-# Listar proyectos
-clipflow list
-
-# Ver clips y estado QA de un proyecto
-clipflow clips <PROJECT_ID>
-
-# Ver resumen completo en JSON
-clipflow status <PROJECT_ID>
-```
-
-### Aprobación y Publicación Privada
-```powershell
-# Aprobar borrador para YouTube
-clipflow approve <DRAFT_ID> --platform youtube
-
-# Despachar publicación privada de prueba
-clipflow publish <PROJECT_ID> --mode private-test
-```
-
-### Programar Publicación en Fecha Futura
-```powershell
-clipflow schedule <PROJECT_ID> --date "2026-12-03T09:00:00-04:00"
-```
-
-### Iniciar Worker Persistente
-```powershell
-clipflow worker --interval 5
-```
-
-### Iniciar Panel Web de Administración
-```powershell
-clipflow web --port 8000
-```
-Accede desde tu navegador a [http://127.0.0.1:8000](http://127.0.0.1:8000).
+- **Postiz UI:** `http://localhost:4007`
+- **AutoClip Publisher:** `http://localhost:8000`
+- **Temporal Dashboard:** `http://localhost:8088`
 
 ---
 
 ## 🧪 Pruebas Automatizadas
 
-Ejecutar la suite completa de pruebas unitarias, de integración y end-to-end:
-
+Ejecutar la suite completa de 39 pruebas unitarias, de integración y E2E:
 ```powershell
-pytest -v
+.\.venv\Scripts\python.exe -m pytest -v
 ```
 
 ---
 
-## 📂 Estructura del Repositorio
+## 🔒 Seguridad y Privacidad
 
-```text
-autoclip-publisher/
-├── AGENTS.md                          # Reglas para agentes IA y Codex
-├── README.md                          # Documentación del proyecto
-├── pyproject.toml                     # Definición del paquete y dependencias
-├── .env.example                       # Plantilla de variables de entorno seguras
-├── config/
-│   └── settings.example.yaml          # Configuración YAML del orquestador
-├── src/clipflow/
-│   ├── cli.py                         # CLI humana y automatizada (clipflow)
-│   ├── config.py                      # Carga y validación de configuración
-│   ├── models.py                      # Modelos SQLAlchemy para SQLite
-│   ├── db.py                          # Conexión, transacciones y auditoría
-│   ├── ingestion.py                   # Ingesta, validación SSRF y hash SHA-256
-│   ├── autoclip_adapter.py            # Adaptador nativo AutoClip Studio
-│   ├── selector.py                    # Algoritmo de ranking y deduplicación
-│   ├── media_qa.py                    # Validador estricto FFprobe (9:16, codecs)
-│   ├── metadata.py                    # Generación de títulos y hashtags por red
-│   ├── publishing/
-│   │   ├── base.py                    # Interfaz abstracta de publicación
-│   │   ├── upload_post.py             # Cliente Upload-Post con variante Studio
-│   │   └── reconcile.py               # Reconciliación de estados asíncronos
-│   ├── queue.py                       # Worker durable y control de reintentos
-│   ├── scheduler.py                   # Conversión horaria Santo Domingo / UTC
-│   ├── approvals.py                   # Aprobación manual y políticas automáticas
-│   ├── reporting.py                   # Informes y exportación JSON
-│   └── web/                           # Panel Web de Administración (FastAPI)
-│       ├── app.py
-│       └── templates/
-├── scripts/
-│   ├── check-environment.ps1          # Diagnóstico rápido de Windows
-│   ├── setup-windows.ps1              # Instalación en un solo paso
-│   ├── start-worker.ps1               # Inicio de worker persistente
-│   └── set-credentials-local.ps1      # Configuración segura de API Keys
-├── tests/
-│   ├── fixtures/                      # Videos de prueba reales 9:16 y 16:9
-│   ├── test_ingestion.py
-│   ├── test_autoclip_adapter.py
-│   ├── test_media_qa.py
-│   ├── test_publish_mock.py
-│   ├── test_idempotency.py
-│   ├── test_scheduler.py
-│   ├── test_recovery.py
-│   ├── test_selector_and_metadata.py
-│   ├── test_web_api.py
-│   └── test_e2e_flow.py
-└── docs/
-    ├── ARCHITECTURE.md                # Arquitectura técnica y diagramas
-    ├── OPERATIONS.md                  # Runbook de operaciones
-    ├── SECURITY.md                    # Políticas de seguridad y anti-SSRF
-    ├── ACCEPTANCE.md                  # Matriz de Gates de aceptación
-    └── UPSTREAM_COMPATIBILITY.md      # Análisis de compatibilidad con AutoClip
-```
+- **Sin Telemetría Externa:** Postiz tiene la telemetría desactivada (`DISABLE_TELEMETRY: "true"`).
+- **Sin Exposición Pública:** Diseñado para ejecutarse en `127.0.0.1`. Si se expone en red local o mediante túnel (Cloudflare / Tailscale), activar HTTPS y configurar un `OWNER_TOKEN` robusto.
+- **Políticas de Privacidad por Defecto:**
+  - YouTube Shorts: Siempre `private` en pruebas.
+  - TikTok: Siempre `SELF_ONLY`.
