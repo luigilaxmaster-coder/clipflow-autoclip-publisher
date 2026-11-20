@@ -8,7 +8,7 @@ from clipflow.models import AutoReplyRule, InboxComment, utc_now
 
 
 def test_inbox_sync_and_manual_reply(db_session: Session):
-    service = InboxService(db_session)
+    service = InboxService(db_session, mock_mode=True)
 
     # 1. Sincronizar comentarios en modo mock
     count = service.sync_comments_from_youtube("mock_video_id_123")
@@ -28,7 +28,7 @@ def test_inbox_sync_and_manual_reply(db_session: Session):
 
 
 def test_auto_reply_cooldown_and_filter(db_session: Session):
-    service = InboxService(db_session)
+    service = InboxService(db_session, mock_mode=True)
 
     # 1. Crear regla de auto-respuesta activa con filtro de palabra clave
     rule = AutoReplyRule(

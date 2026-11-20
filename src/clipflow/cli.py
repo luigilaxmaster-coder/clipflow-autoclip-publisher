@@ -379,9 +379,15 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
-    """Inicia el worker continuo de la cola de publicación."""
+    """Inicia el worker continuo de la cola de publicación usando UnifiedPublisher + credenciales cifradas."""
+    from clipflow.publishing.unified import UnifiedPublisher
+
     init_db()
-    publisher = UploadPostPublisher(mock_mode=args.mock)
+    if args.mock:
+        publisher = UnifiedPublisher(mock_mode=True)
+    else:
+        # PublishQueueWorker inyecta ConnectionService(session) dinámicamente en cada ciclo
+        publisher = None
     worker = PublishQueueWorker(get_db_context, publisher)
     print("Iniciando worker persistente de ClipFlow (Presiona Ctrl+C para detener)...")
     worker.run_loop(poll_interval_sec=args.interval, once=args.once)

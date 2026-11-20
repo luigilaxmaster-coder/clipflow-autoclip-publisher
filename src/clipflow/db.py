@@ -5,7 +5,7 @@ import json
 from contextlib import contextmanager
 from typing import Any, Generator, Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from clipflow.config import get_settings
@@ -32,10 +32,28 @@ def get_session_factory(database_url: Optional[str] = None) -> sessionmaker[Sess
     return _SessionFactory
 
 
+def _ensure_schema_columns(engine) -> None:
+    """Asegura que bases SQLite existentes incorporen nuevas columnas sin pérdida de datos."""
+    insp = inspect(engine)
+    if "publish_jobs" in insp.get_table_names():
+        existing_cols = {col["name"] for col in insp.get_columns("publish_jobs")}
+        migrations = [
+            ("remote_channel_id", "VARCHAR(128)"),
+            ("remote_privacy_status", "VARCHAR(32)"),
+            ("upload_session_uri", "TEXT"),
+            ("upload_bytes_sent", "INTEGER DEFAULT 0"),
+        ]
+        with engine.begin() as conn:
+            for col_name, col_type in migrations:
+                if col_name not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE publish_jobs ADD COLUMN {col_name} {col_type}"))
+
+
 def init_db(database_url: Optional[str] = None) -> None:
-    """Crea las tablas en la base de datos si no existen."""
+    """Crea las tablas en la base de datos si no existen y migra columnas faltantes."""
     engine = get_engine(database_url)
     Base.metadata.create_all(bind=engine)
+    _ensure_schema_columns(engine)
 
 
 def get_session(database_url: Optional[str] = None) -> Session:

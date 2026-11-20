@@ -1,16 +1,18 @@
 ﻿<#
 .SYNOPSIS
-    Inicia AutoClip Publisher — Personal Edition en Windows.
+    Inicia AutoClip Publisher — Personal Edition en Windows (FastAPI + Worker supervisados).
 .DESCRIPTION
-    Arranca el servidor web FastAPI del panel de administración en el puerto 8000
-    y lanza el worker persistente de la cola de publicación.
+    Arranca simultáneamente el servidor web FastAPI en el puerto 8000 y el worker
+    persistente de publicación como procesos independientes supervisados con apagado limpio.
 #>
 
 [CmdletBinding()]
 param(
     [int]$Port = 8000,
     [string]$HostAddress = "127.0.0.1",
-    [switch]$WorkerOnly
+    [double]$WorkerInterval = 5.0,
+    [switch]$WorkerOnly,
+    [switch]$WebOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +21,7 @@ $ProjectDir = Split-Path -Parent $ScriptDir
 Set-Location $ProjectDir
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  AUTOCLIP PUBLISHER — PERSONAL EDITION (2026)" -ForegroundColor Cyan
+Write-Host "  AUTOCLIP PUBLISHER — PERSONAL EDITION (SUPERVISADO)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $PythonExe = Join-Path $ProjectDir ".venv\Scripts\python.exe"
@@ -29,15 +31,33 @@ if (-not (Test-Path $PythonExe)) {
     uv pip install -e .
 }
 
-# Inicializar Base de Datos
-Write-Host "[*] Inicializando base de datos SQLite y claves seguras..." -ForegroundColor Gray
-& $PythonExe -c "from clipflow.db import init_db; init_db(); print('DB lista.')"
+# Verificar token de propietario (nunca usar valores fijos predeterminados)
+$TokenCheck = & $PythonExe -c "from clipflow.security import get_owner_token; print('OK' if get_owner_token() else 'MISSING')"
+if ($TokenCheck.Trim() -ne "OK") {
+    Write-Host "[!] OWNER_TOKEN no encontrado en .env ni en data/.owner.token." -ForegroundColor Yellow
+    Write-Host "[*] Generando token aleatorio criptografico en data/.owner.token..." -ForegroundColor Cyan
+    & $PythonExe -c "from clipflow.security import ensure_owner_token_file; ensure_owner_token_file(); print('[+] Token seguro guardado en data/.owner.token (consulta ese archivo local para iniciar sesion).')"
+}
+
+Write-Host "[*] Inicializando base de datos SQLite y verificando esquema..." -ForegroundColor Gray
+& $PythonExe -c "from clipflow.db import init_db; init_db(); print('[+] Base de datos lista.')"
+
+$SupArgs = @(
+    "-m", "clipflow.supervisor",
+    "--host", $HostAddress,
+    "--port", "$Port",
+    "--interval", "$WorkerInterval"
+)
+if ($WorkerOnly) { $SupArgs += "--worker-only" }
+if ($WebOnly)    { $SupArgs += "--web-only" }
 
 if ($WorkerOnly) {
-    Write-Host "[+] Iniciando worker persistente de publicación..." -ForegroundColor Green
-    & $PythonExe -m clipflow.cli worker --interval 5
+    Write-Host "[+] Iniciando solo Worker persistente supervisado..." -ForegroundColor Green
+} elseif ($WebOnly) {
+    Write-Host "[+] Iniciando solo Panel Web en http://${HostAddress}:${Port}" -ForegroundColor Green
 } else {
-    Write-Host "[+] Abriendo panel web en http://${HostAddress}:${Port}" -ForegroundColor Green
-    Write-Host "[*] Presiona Ctrl+C para detener." -ForegroundColor Gray
-    & $PythonExe -m uvicorn clipflow.web.app:app --host $HostAddress --port $Port --reload
+    Write-Host "[+] Iniciando Panel Web (http://${HostAddress}:${Port}) + Worker simultaneamente..." -ForegroundColor Green
 }
+Write-Host "[*] Presiona Ctrl+C para un apagado limpio de ambos procesos." -ForegroundColor Gray
+
+& $PythonExe @SupArgs

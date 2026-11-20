@@ -56,5 +56,17 @@ def test_native_youtube_oauth_and_upload(vertical_video_path: Path):
     assert len(comments) >= 1
     assert yt.reply_to_comment(comments[0]["comment_id"], "Gracias por tu apoyo!") is True
 
-    # 8. Cancelar video
-    assert yt.cancel_scheduled(res.job_id) is True
+    # 8. Cancelación segura: un video ya PUBLICADO nunca debe eliminarse remotamente
+    assert yt.cancel_scheduled(res.job_id) is False
+
+    # Un video programado (SCHEDULED) sí puede cancelarse localmente en modo test
+    sched_res = yt.submit_post(
+        video_path=str(vertical_video_path),
+        title="Scheduled Safe Cancel",
+        platform="youtube",
+        profile="OwnerYouTubeChannel",
+        visibility="private",
+        scheduled_date_iso="2026-12-15T15:00:00Z",
+    )
+    assert sched_res.ok is True
+    assert yt.cancel_scheduled(sched_res.job_id) is True

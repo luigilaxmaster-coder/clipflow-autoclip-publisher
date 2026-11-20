@@ -2,21 +2,25 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 from clipflow.connections.service import ConnectionService
-from clipflow.models import AccountConnection, AutoReplyRule, ConnectionStatus, InboxComment, utc_now
+from clipflow.models import AutoReplyRule, InboxComment, utc_now
 from clipflow.publishing.native_youtube import NativeYouTubePublisher
+from clipflow.security import assert_mock_allowed, is_mock_allowed
 
 logger = logging.getLogger(__name__)
 
 
 class InboxService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, mock_mode: bool = False):
+        if mock_mode:
+            assert_mock_allowed("InboxService")
         self.db = db
+        self.mock_mode = mock_mode
         self.conn_service = ConnectionService(db)
 
     def list_comments(self, status: Optional[str] = None, platform: Optional[str] = None) -> List[InboxComment]:
@@ -28,16 +32,25 @@ class InboxService:
             q = q.filter(InboxComment.platform == platform.lower())
         return q.limit(100).all()
 
-    def sync_comments_from_youtube(self, video_id: str) -> int:
-        """Sincroniza comentarios reales desde YouTube Data API v3."""
+    def _build_youtube_publisher(self) -> Optional[NativeYouTubePublisher]:
         creds = self.conn_service.get_decrypted_credentials("youtube")
-        pub = NativeYouTubePublisher(
-            client_id=creds.get("client_id"),
-            client_secret=creds.get("client_secret"),
-            access_token=creds.get("access_token"),
-            refresh_token=creds.get("refresh_token"),
-            mock_mode=creds.get("mock", False) or not bool(creds.get("access_token")),
+        use_mock = self.mock_mode and is_mock_allowed()
+        if not use_mock and not (creds.get("access_token") or creds.get("refresh_token")):
+            return None
+        return NativeYouTubePublisher(
+            client_id=creds.get("client_id", ""),
+            client_secret=creds.get("client_secret", ""),
+            access_token=creds.get("access_token", ""),
+            refresh_token=creds.get("refresh_token", ""),
+            mock_mode=use_mock,
         )
+
+    def sync_comments_from_youtube(self, video_id: str) -> int:
+        """Sincroniza comentarios reales desde YouTube Data API v3. Nunca fabrica comentarios si no hay autorización."""
+        pub = self._build_youtube_publisher()
+        if pub is None:
+            logger.info("YouTube no está autorizado; no se sincronizan comentarios para %s.", video_id)
+            return 0
 
         remote_comments = pub.fetch_comments(video_id)
         imported = 0
@@ -85,18 +98,15 @@ class InboxService:
 
         success = False
         if comment.platform == "youtube":
-            creds = self.conn_service.get_decrypted_credentials("youtube")
-            pub = NativeYouTubePublisher(
-                client_id=creds.get("client_id"),
-                client_secret=creds.get("client_secret"),
-                access_token=creds.get("access_token"),
-                refresh_token=creds.get("refresh_token"),
-                mock_mode=creds.get("mock", False) or not bool(creds.get("access_token")),
-            )
+            pub = self._build_youtube_publisher()
+            if pub is None:
+                return False
             success = pub.reply_to_comment(comment.remote_comment_id, reply_text)
-        else:
-            # Para otras plataformas
+        elif self.mock_mode and is_mock_allowed():
             success = True
+        else:
+            logger.warning("Respuesta de comentarios no autorizada/soportada para plataforma %s", comment.platform)
+            return False
 
         if success:
             comment.status = "REPLIED"
@@ -123,13 +133,11 @@ class InboxService:
         keywords = [k.strip().lower() for k in (rule.keyword_filter or "").split(",") if k.strip()]
 
         for c in pending_comments:
-            # 1. Filtro de palabras clave
             if keywords:
                 content_lower = c.content.lower()
                 if not any(k in content_lower for k in keywords):
                     continue
 
-            # 2. Control de Cooldown por autor (evitar spam si el mismo usuario comenta varias veces)
             if c.author_id:
                 recent_reply = (
                     self.db.query(InboxComment)
@@ -144,7 +152,6 @@ class InboxService:
                     logger.debug("Omitiendo auto-respuesta a %s por cooldown activo.", c.author_name)
                     continue
 
-            # 3. Enviar respuesta usando la plantilla
             reply_text = rule.reply_template.replace("{author}", c.author_name)
             if self.reply_to_comment(c.id, reply_text):
                 replied_count += 1

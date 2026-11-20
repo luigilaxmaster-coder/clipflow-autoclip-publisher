@@ -1,17 +1,21 @@
-"""Aplicación FastAPI para el panel de administración web y API REST de AutoClip Publisher — Personal Edition."""
+"""Aplicación FastAPI segura para AutoClip Publisher — Personal Edition (V2)."""
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
 import shutil
-import subprocess
+import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, quote
+from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -36,114 +40,424 @@ from clipflow.models import (
     Project,
     PublishJob,
     Render,
+    Source,
     utc_now,
 )
+from clipflow.publishing.native_youtube import NativeYouTubePublisher
+from clipflow.publishing.postiz import PostizPublisher
 from clipflow.publishing.unified import UnifiedPublisher
 from clipflow.queue import PublishQueueWorker
-from clipflow.security import COOKIE_NAME, get_owner_token, verify_owner_access
+from clipflow.security import (
+    COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    authenticate_request,
+    create_session_cookie_value,
+    generate_csrf_token,
+    get_owner_token,
+    get_request_csrf_token,
+    redact_secrets,
+    verify_csrf_token,
+    wants_html_response,
+)
 
 logger = logging.getLogger(__name__)
 
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
+LOCAL_TZ = ZoneInfo("America/Santo_Domingo")
+PUBLIC_PATHS = {"/login", "/api/health"}
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
 app = FastAPI(
     title="AutoClip Publisher — Personal Edition",
-    version="1.0.0",
-    description="Suite privada de publicación, programación y gestión multicanal para AutoClip.",
+    version="2.0.0",
+    description="Centro privado de publicación, programación y gestión multicanal para AutoClip.",
+    lifespan=lifespan,
 )
 
-TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-@app.on_event("startup")
-def startup_event():
-    init_db()
+# -------------------------------------------------------------
+# Middleware Global de Autenticación de Propietario + CSRF
+# -------------------------------------------------------------
+@app.middleware("http")
+async def owner_auth_and_csrf_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Rutas públicas estrictamente limitadas: login, health probe y estáticos CSS/JS
+    if path in PUBLIC_PATHS or path.startswith("/static/"):
+        request.state.csrf_token = get_request_csrf_token(request)
+        return await call_next(request)
+
+    is_auth, auth_method = authenticate_request(request)
+    if not is_auth:
+        if wants_html_response(request):
+            next_q = quote(path, safe="/")
+            return RedirectResponse(url=f"/login?next={next_q}", status_code=status.HTTP_303_SEE_OTHER)
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Acceso denegado: Se requiere autenticación del propietario único."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Protección CSRF obligatoria en mutaciones autenticadas por cookie
+    if auth_method == "cookie" and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        owner_token = get_owner_token() or ""
+        session_cookie = request.cookies.get(COOKIE_NAME)
+        provided_csrf = request.headers.get(CSRF_HEADER_NAME)
+
+        if not provided_csrf:
+            ctype = (request.headers.get("content-type") or "").lower()
+            if "application/x-www-form-urlencoded" in ctype:
+                raw_body = await request.body()
+                parsed = parse_qs(raw_body.decode("utf-8", errors="ignore"))
+                vals = parsed.get("csrf_token")
+                if vals:
+                    provided_csrf = vals[0]
+            elif "multipart/form-data" in ctype:
+                form = await request.form()
+                val = form.get("csrf_token")
+                if isinstance(val, str):
+                    provided_csrf = val
+
+        if not verify_csrf_token(provided_csrf, session_cookie, owner_token):
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "Solicitud bloqueada: Token CSRF faltante o inválido."},
+            )
+
+    request.state.auth_method = auth_method
+    request.state.csrf_token = get_request_csrf_token(request)
+    response = await call_next(request)
+
+    # Cabeceras de endurecimiento de seguridad
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+
+
+def _render(request: Request, name: str, context: Optional[Dict[str, Any]] = None) -> HTMLResponse:
+    ctx = dict(context or {})
+    ctx["csrf_token"] = getattr(request.state, "csrf_token", "") or get_request_csrf_token(request)
+    return templates.TemplateResponse(request=request, name=name, context=ctx)
+
+
+def _system_health_snapshot(db: Session) -> Dict[str, Any]:
+    db_ok = True
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    postiz = PostizPublisher(mock_mode=False)
+    postiz_configured = postiz.is_configured
+    postiz_online = False
+    if postiz_configured:
+        postiz_online = postiz.ping()
+    return {
+        "database_connected": db_ok,
+        "ffmpeg_available": ffmpeg_ok,
+        "postiz_configured": postiz_configured,
+        "postiz_online": postiz_online,
+        "status": "healthy" if (db_ok and ffmpeg_ok) else "degraded",
+    }
+
+
+def _collect_real_analytics(db: Session) -> Dict[str, Any]:
+    """
+    Recupera métricas reales desde las APIs oficiales conectadas.
+    NUNCA inventa cifras: si una API no está autorizada o no devuelve datos,
+    asigna explícitamente estado 'SIN_DATOS'.
+    """
+    published_jobs = (
+        db.query(PublishJob)
+        .filter(PublishJob.status == JobStatus.PUBLISHED)
+        .order_by(PublishJob.created_at.desc())
+        .all()
+    )
+
+    conn_service = ConnectionService(db)
+    yt_conn = conn_service.get_connection("youtube")
+    yt_stats_map: Dict[str, Dict[str, Any]] = {}
+    yt_source_note = "YouTube no conectado"
+
+    if yt_conn and yt_conn.status == ConnectionStatus.CONNECTED:
+        yt_ids = [
+            j.remote_post_id
+            for j in published_jobs
+            if j.post_draft and j.post_draft.platform.lower() == "youtube" and j.remote_post_id
+        ]
+        if yt_ids:
+            pub = UnifiedPublisher(connection_service=conn_service, mock_mode=False)
+            yt_stats_map = pub.native_youtube.fetch_video_statistics(yt_ids)
+            yt_source_note = "YouTube Data API v3"
+        else:
+            yt_source_note = "Sin videos publicados con ID oficial de YouTube"
+
+    posts_stats: List[Dict[str, Any]] = []
+    verified_views = 0
+    verified_likes = 0
+    verified_comments = 0
+    verified_count = 0
+    platform_counts: Dict[str, int] = {}
+
+    for job in published_jobs:
+        draft = job.post_draft
+        plat = (draft.platform or "desconocido").lower() if draft else "desconocido"
+        platform_counts[plat] = platform_counts.get(plat, 0) + 1
+
+        real_st = yt_stats_map.get(job.remote_post_id or "") if plat == "youtube" else None
+        if real_st and real_st.get("views") is not None:
+            views = int(real_st["views"])
+            likes = int(real_st["likes"]) if real_st.get("likes") is not None else 0
+            comments = int(real_st["comments"]) if real_st.get("comments") is not None else 0
+            engagement = ((likes + comments) / max(views, 1)) * 100.0
+            verified_views += views
+            verified_likes += likes
+            verified_comments += comments
+            verified_count += 1
+            metrics_status = "REAL"
+            source_label = "YouTube Data API v3"
+            reason = None
+            fetched_at = real_st.get("fetched_at")
+        else:
+            views = None
+            likes = None
+            comments = None
+            engagement = None
+            metrics_status = "SIN_DATOS"
+            source_label = "SIN_DATOS"
+            fetched_at = None
+            if plat == "youtube":
+                if not yt_conn or yt_conn.status != ConnectionStatus.CONNECTED:
+                    reason = "Conecta y autoriza YouTube OAuth para consultar estadísticas oficiales."
+                elif not job.remote_post_id:
+                    reason = "Sin video_id oficial de YouTube registrado."
+                else:
+                    reason = "YouTube API no devolvió estadísticas para este video."
+            else:
+                reason = f"API oficial de analíticas no autorizada para {plat}."
+
+        posts_stats.append({
+            "id": job.id,
+            "platform": plat,
+            "title": draft.title if draft else "Sin título",
+            "created_at": job.created_at.strftime("%Y-%m-%d %H:%M") if job.created_at else "",
+            "remote_post_id": job.remote_post_id,
+            "views": views,
+            "likes": likes,
+            "comments": comments,
+            "engagement": round(engagement, 2) if engagement is not None else None,
+            "url": job.remote_url,
+            "metrics_status": metrics_status,
+            "source": source_label,
+            "reason": reason,
+            "fetched_at": fetched_at,
+        })
+
+    has_real_metrics = verified_count > 0
+    avg_engagement = (
+        round(((verified_likes + verified_comments) / max(verified_views, 1)) * 100.0, 2)
+        if has_real_metrics
+        else None
+    )
+
+    return {
+        "metrics_status": "REAL" if has_real_metrics else "SIN_DATOS",
+        "has_real_metrics": has_real_metrics,
+        "verified_posts_count": verified_count,
+        "total_published_count": len(published_jobs),
+        "total_views": verified_views if has_real_metrics else None,
+        "total_likes": verified_likes if has_real_metrics else None,
+        "total_comments": verified_comments if has_real_metrics else None,
+        "avg_engagement": avg_engagement,
+        "platform_counts": platform_counts,
+        "source_note": yt_source_note,
+        "posts_stats": posts_stats,
+    }
 
 
 # -------------------------------------------------------------
 # Autenticación de Propietario Único
 # -------------------------------------------------------------
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    return templates.TemplateResponse(request=request, name="login.html")
+def login_page(request: Request, next: str = "/", error: Optional[str] = None):
+    owner_configured = get_owner_token() is not None
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={
+            "next_url": next if next.startswith("/") and not next.startswith("//") else "/",
+            "error": error,
+            "owner_configured": owner_configured,
+        },
+    )
 
 
 @app.post("/login")
-def login_action(token: str = Form(...)):
+def login_action(request: Request, token: str = Form(...), next_url: str = Form("/")):
     owner_token = get_owner_token()
-    if token.strip() == owner_token:
-        response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    if not owner_token:
+        raise HTTPException(
+            status_code=503,
+            detail="OWNER_TOKEN no configurado en el servidor. Define OWNER_TOKEN en .env o data/.owner.token.",
+        )
+
+    if hmac.compare_digest(token.strip(), owner_token):
+        safe_next = next_url if (next_url.startswith("/") and not next_url.startswith("//")) else "/"
+        session_val = create_session_cookie_value(owner_token)
+        csrf_val = generate_csrf_token(session_val, owner_token)
+        is_https = request.url.scheme == "https"
+
+        response = RedirectResponse(url=safe_next, status_code=status.HTTP_303_SEE_OTHER)
         response.set_cookie(
             key=COOKIE_NAME,
-            value=owner_token,
+            value=session_val,
             httponly=True,
+            secure=is_https,
             samesite="lax",
-            max_age=86400 * 30,
+            max_age=86400 * 14,
+        )
+        response.set_cookie(
+            key=CSRF_COOKIE_NAME,
+            value=csrf_val,
+            httponly=False,
+            secure=is_https,
+            samesite="lax",
+            max_age=86400 * 14,
         )
         return response
-    raise HTTPException(status_code=401, detail="Clave maestra inválida.")
+
+    return RedirectResponse(url="/login?error=invalid", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@app.get("/logout")
+@app.post("/logout")
 def logout_action():
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(COOKIE_NAME)
+    response.delete_cookie(CSRF_COOKIE_NAME)
     return response
 
 
 # -------------------------------------------------------------
-# Vistas Principales del Dashboard
+# Vistas Principales del Dashboard (10 Secciones)
 # -------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 @app.get("/overview", response_class=HTMLResponse)
 def overview_view(request: Request, db: Session = Depends(get_db)):
     projects = db.query(Project).order_by(Project.created_at.desc()).all()
     renders_count = db.query(Render).count()
+    assets_count = db.query(MediaAsset).count()
     published_count = db.query(PublishJob).filter(PublishJob.status == JobStatus.PUBLISHED).count()
     queued_count = db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.QUEUED, JobStatus.SCHEDULED])).count()
-    failed_count = db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED"])).count()
-    connected_apps_count = db.query(AccountConnection).filter(AccountConnection.status == ConnectionStatus.CONNECTED).count()
+    failed_count = (
+        db.query(PublishJob)
+        .filter(PublishJob.status.in_([JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED"]))
+        .count()
+    )
+    connected_apps_count = (
+        db.query(AccountConnection).filter(AccountConnection.status == ConnectionStatus.CONNECTED).count()
+    )
 
     recent_jobs = db.query(PublishJob).order_by(PublishJob.created_at.desc()).limit(10).all()
+    upcoming_jobs = (
+        db.query(PublishJob)
+        .filter(PublishJob.status.in_([JobStatus.SCHEDULED, JobStatus.QUEUED]))
+        .order_by(PublishJob.scheduled_at_utc.asc().nullslast())
+        .limit(5)
+        .all()
+    )
 
+    # Distribución real por plataforma
+    all_jobs = db.query(PublishJob).all()
+    platform_breakdown: Dict[str, int] = {}
+    daily_counts: Dict[str, int] = {}
+    for j in all_jobs:
+        plat = j.post_draft.platform.lower() if j.post_draft else "otros"
+        platform_breakdown[plat] = platform_breakdown.get(plat, 0) + 1
+        if j.created_at:
+            day_key = j.created_at.strftime("%Y-%m-%d")
+            daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+
+    health = _system_health_snapshot(db)
     stats = {
         "projects_count": len(projects),
-        "renders_count": renders_count,
+        "renders_count": max(renders_count, assets_count),
         "published_count": published_count,
         "queued_count": queued_count,
         "failed_count": failed_count,
         "connected_apps_count": connected_apps_count,
     }
 
-    return templates.TemplateResponse(
-        request=request,
-        name="overview.html",
-        context={"projects": projects, "stats": stats, "recent_jobs": recent_jobs},
+    return _render(
+        request,
+        "overview.html",
+        {
+            "projects": projects,
+            "stats": stats,
+            "recent_jobs": recent_jobs,
+            "upcoming_jobs": upcoming_jobs,
+            "platform_breakdown": platform_breakdown,
+            "daily_counts": dict(sorted(daily_counts.items())[-14:]),
+            "health": health,
+        },
     )
 
 
 @app.get("/connections", response_class=HTMLResponse)
-def connections_view(request: Request, db: Session = Depends(get_db)):
+def connections_view(
+    request: Request,
+    oauth: Optional[str] = None,
+    provider: Optional[str] = None,
+    oauth_error: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     conn_service = ConnectionService(db)
     connections = conn_service.list_connections()
-    return templates.TemplateResponse(
-        request=request,
-        name="connections.html",
-        context={"connections": connections},
+    connected_count = sum(1 for c in connections if c["status"] == ConnectionStatus.CONNECTED)
+    return _render(
+        request,
+        "connections.html",
+        {
+            "connections": connections,
+            "connected_count": connected_count,
+            "oauth_status": oauth,
+            "oauth_provider": provider,
+            "oauth_error": oauth_error,
+        },
     )
 
 
 @app.get("/publisher", response_class=HTMLResponse)
 def publisher_view(request: Request, asset_id: Optional[str] = None, db: Session = Depends(get_db)):
     media_service = MediaLibraryService(db)
-    # Asegurar sincronización inicial
     media_service.sync_renders_from_autoclip()
     assets = media_service.list_assets(limit=100)
-    selected_asset = media_service.get_asset(asset_id) if asset_id else None
+    selected_asset = media_service.get_asset(asset_id) if asset_id else (assets[0] if assets else None)
 
-    return templates.TemplateResponse(
-        request=request,
-        name="publisher.html",
-        context={"assets": assets, "selected_asset": selected_asset},
+    conn_service = ConnectionService(db)
+    connections = {c["id"]: c for c in conn_service.list_connections()}
+
+    return _render(
+        request,
+        "publisher.html",
+        {
+            "assets": assets,
+            "selected_asset": selected_asset,
+            "connections_map": connections,
+        },
     )
 
 
@@ -151,15 +465,50 @@ def publisher_view(request: Request, asset_id: Optional[str] = None, db: Session
 def calendar_view(request: Request, db: Session = Depends(get_db)):
     scheduled_jobs = (
         db.query(PublishJob)
-        .filter(PublishJob.status.in_([JobStatus.QUEUED, JobStatus.SCHEDULED, "UPLOADING"]))
-        .order_by(PublishJob.scheduled_at_utc.asc().nullslast())
-        .limit(50)
+        .filter(
+            PublishJob.status.in_([
+                JobStatus.QUEUED,
+                JobStatus.SCHEDULED,
+                JobStatus.UPLOADING,
+                JobStatus.PROCESSING,
+                JobStatus.PUBLISHED,
+            ])
+        )
+        .order_by(PublishJob.scheduled_at_utc.asc().nullslast(), PublishJob.created_at.desc())
+        .limit(100)
         .all()
     )
-    return templates.TemplateResponse(
-        request=request,
-        name="calendar.html",
-        context={"scheduled_jobs": scheduled_jobs},
+
+    calendar_events = []
+    for j in scheduled_jobs:
+        dt = j.scheduled_at_utc or j.created_at or utc_now()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        local_dt = dt.astimezone(LOCAL_TZ)
+        render = j.post_draft.render if j.post_draft else None
+        asset = db.query(MediaAsset).filter(MediaAsset.render_id == render.id).first() if render else None
+        calendar_events.append({
+            "id": j.id,
+            "title": j.post_draft.title if j.post_draft else f"Job {j.id[:8]}",
+            "platform": j.post_draft.platform if j.post_draft else "unknown",
+            "status": j.status,
+            "date": local_dt.strftime("%Y-%m-%d"),
+            "time": local_dt.strftime("%H:%M"),
+            "iso_local": local_dt.isoformat(),
+            "remote_url": j.remote_url,
+            "asset_id": asset.id if asset else None,
+            "has_thumb": bool(asset and asset.thumbnail_path),
+            "movable": j.status in (JobStatus.SCHEDULED, JobStatus.QUEUED, JobStatus.DRAFT, JobStatus.READY),
+        })
+
+    return _render(
+        request,
+        "calendar.html",
+        {
+            "scheduled_jobs": scheduled_jobs,
+            "calendar_events": calendar_events,
+            "today_local": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"),
+        },
     )
 
 
@@ -168,59 +517,30 @@ def media_library_view(request: Request, db: Session = Depends(get_db)):
     media_service = MediaLibraryService(db)
     media_service.sync_renders_from_autoclip()
     assets = media_service.list_assets(limit=100)
-    return templates.TemplateResponse(
-        request=request,
-        name="media_library.html",
-        context={"assets": assets},
+
+    # Enriquecer con estado real de MediaQA del render si existe
+    renders_map = {r.id: r for r in db.query(Render).all()}
+    enriched = []
+    for a in assets:
+        r = renders_map.get(a.render_id) if a.render_id else None
+        enriched.append({
+            "asset": a,
+            "qa_status": r.qa_status if r else "SIN_QA",
+            "platform": r.target_platform if r else "local",
+            "tags": json.loads(a.tags_json) if a.tags_json else [],
+        })
+
+    return _render(
+        request,
+        "media_library.html",
+        {"assets": assets, "enriched_assets": enriched},
     )
 
 
 @app.get("/analytics", response_class=HTMLResponse)
 def analytics_view(request: Request, db: Session = Depends(get_db)):
-    published_jobs = db.query(PublishJob).filter(PublishJob.status == JobStatus.PUBLISHED).all()
-
-    total_views = 0
-    total_likes = 0
-    total_comments = 0
-    posts_stats = []
-
-    for job in published_jobs:
-        # Calcular estadísticas verificadas
-        views = 120 if job.remote_url else 0
-        likes = 14 if job.remote_url else 0
-        comments = 2 if job.remote_url else 0
-        engagement = ((likes + comments) / max(views, 1)) * 100
-
-        total_views += views
-        total_likes += likes
-        total_comments += comments
-
-        draft = job.post_draft
-        posts_stats.append({
-            "id": job.id,
-            "platform": draft.platform if draft else "desconocido",
-            "title": draft.title if draft else "Sin título",
-            "created_at": job.created_at.strftime("%d/%m/%Y") if job.created_at else "",
-            "views": views,
-            "likes": likes,
-            "comments": comments,
-            "engagement": engagement,
-            "url": job.remote_url,
-        })
-
-    avg_engagement = ((total_likes + total_comments) / max(total_views, 1)) * 100 if total_views > 0 else 0.0
-
-    return templates.TemplateResponse(
-        request=request,
-        name="analytics.html",
-        context={
-            "total_views": total_views,
-            "total_likes": total_likes,
-            "total_comments": total_comments,
-            "avg_engagement": avg_engagement,
-            "posts_stats": posts_stats,
-        },
-    )
+    analytics_data = _collect_real_analytics(db)
+    return _render(request, "analytics.html", analytics_data)
 
 
 @app.get("/inbox", response_class=HTMLResponse)
@@ -228,29 +548,34 @@ def inbox_view(request: Request, db: Session = Depends(get_db)):
     inbox_service = InboxService(db)
     comments = inbox_service.list_comments()
     auto_reply_rule = db.query(AutoReplyRule).first()
-    return templates.TemplateResponse(
-        request=request,
-        name="inbox.html",
-        context={"comments": comments, "auto_reply_rule": auto_reply_rule},
+    yt_conn = ConnectionService(db).get_connection("youtube")
+    return _render(
+        request,
+        "inbox.html",
+        {
+            "comments": comments,
+            "auto_reply_rule": auto_reply_rule,
+            "youtube_connected": bool(yt_conn and yt_conn.status == ConnectionStatus.CONNECTED),
+        },
     )
 
 
 @app.get("/automations", response_class=HTMLResponse)
 def automations_view(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse(
-        request=request,
-        name="automations.html",
-    )
+    return _render(request, "automations.html")
 
 
 @app.get("/queue", response_class=HTMLResponse)
 def queue_view(request: Request, db: Session = Depends(get_db)):
     jobs = db.query(PublishJob).order_by(PublishJob.created_at.desc()).all()
-    return templates.TemplateResponse(
-        request=request,
-        name="queue.html",
-        context={"jobs": jobs},
-    )
+    counts = {
+        "total": len(jobs),
+        "queued": sum(1 for j in jobs if j.status in (JobStatus.QUEUED, JobStatus.SCHEDULED)),
+        "processing": sum(1 for j in jobs if j.status in (JobStatus.UPLOADING, JobStatus.PROCESSING, "REMOTE_PROCESSING")),
+        "published": sum(1 for j in jobs if j.status == JobStatus.PUBLISHED),
+        "attention": sum(1 for j in jobs if j.status in (JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED")),
+    }
+    return _render(request, "queue.html", {"jobs": jobs, "counts": counts})
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -260,22 +585,14 @@ def settings_view(request: Request, db: Session = Depends(get_db)):
     if backups_dir.is_dir():
         for b in sorted(backups_dir.glob("clipflow_backup_*.zip"), key=os.path.getmtime, reverse=True):
             backups.append({"name": b.name, "size": b.stat().st_size})
-
-    return templates.TemplateResponse(
-        request=request,
-        name="settings.html",
-        context={"backups": backups},
-    )
+    health = _system_health_snapshot(db)
+    return _render(request, "settings.html", {"backups": backups, "health": health})
 
 
 @app.get("/audit", response_class=HTMLResponse)
 def audit_view(request: Request, db: Session = Depends(get_db)):
     events = db.query(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(100).all()
-    return templates.TemplateResponse(
-        request=request,
-        name="audit.html",
-        context={"events": events},
-    )
+    return _render(request, "audit.html", {"events": events})
 
 
 @app.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -283,16 +600,11 @@ def project_detail(project_id: str, request: Request, db: Session = Depends(get_
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-
-    return templates.TemplateResponse(
-        request=request,
-        name="project_detail.html",
-        context={"project": project},
-    )
+    return _render(request, "project_detail.html", {"project": project})
 
 
 # -------------------------------------------------------------
-# API Endpoints: Connections Hub
+# API Endpoints: Connections Hub & Flujo OAuth 2.0 Completo
 # -------------------------------------------------------------
 class SaveCredentialsRequest(BaseModel):
     account_name: str
@@ -309,11 +621,12 @@ def api_save_connection(provider_id: str, payload: SaveCredentialsRequest, db: S
             account_name=payload.account_name,
             credentials=payload.credentials,
             test_now=payload.test_now,
+            allow_mock=False,  # Prohibido mock vía API
         )
         return res
     except Exception as e:
-        logger.error("Error al guardar conexión %s: %s", provider_id, e)
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Error al guardar conexión %s: %s", provider_id, redact_secrets(str(e)))
+        raise HTTPException(status_code=400, detail=redact_secrets(str(e)))
 
 
 @app.post("/api/connections/{provider_id}/test")
@@ -329,13 +642,119 @@ def api_disconnect_connection(provider_id: str, db: Session = Depends(get_db)):
     return RedirectResponse(url="/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@app.get("/api/connections/youtube/oauth/start")
+def api_youtube_oauth_start(request: Request, db: Session = Depends(get_db)):
+    """Inicia el flujo interactivo de Google OAuth 2.0 con estado criptográfico de un solo uso."""
+    conn_service = ConnectionService(db)
+    creds = conn_service.get_decrypted_credentials("youtube")
+    client_id = (creds.get("client_id") or os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
+    client_secret = (creds.get("client_secret") or os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
+
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=400,
+            detail="Primero guarda YOUTUBE_CLIENT_ID y YOUTUBE_CLIENT_SECRET en Connected Apps.",
+        )
+
+    redirect_uri = str(request.url_for("youtube_oauth_callback"))
+    state_val = conn_service.create_oauth_state("youtube", redirect_uri)
+
+    pub = NativeYouTubePublisher(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+        mock_mode=False,
+    )
+    auth_url = pub.get_authorization_url(state=state_val)
+
+    if "application/json" in (request.headers.get("Accept") or "").lower():
+        return {"ok": True, "auth_url": auth_url, "redirect_uri": redirect_uri}
+    return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/api/connections/youtube/callback", name="youtube_oauth_callback")
+def api_youtube_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Callback oficial de Google OAuth 2.0: valida estado, canjea código, cifra tokens y verifica canal."""
+    if error:
+        return RedirectResponse(
+            url=f"/connections?oauth=error&provider=youtube&oauth_error={quote(error)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Faltan parámetros obligatorios 'code' o 'state'.")
+
+    conn_service = ConnectionService(db)
+    state_entry = conn_service.consume_oauth_state(state, "youtube")
+    if not state_entry:
+        raise HTTPException(status_code=400, detail="Estado OAuth inválido, expirado o ya utilizado.")
+
+    creds = conn_service.get_decrypted_credentials("youtube")
+    client_id = (creds.get("client_id") or os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
+    client_secret = (creds.get("client_secret") or os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
+
+    pub = NativeYouTubePublisher(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=state_entry.redirect_uri,
+        mock_mode=False,
+    )
+    try:
+        token_data = pub.exchange_code(code)
+    except Exception as e:
+        err_msg = redact_secrets(str(e))
+        return RedirectResponse(
+            url=f"/connections?oauth=error&provider=youtube&oauth_error={quote(err_msg)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    scopes = token_data.get("scope", "").split() if token_data.get("scope") else None
+    result = conn_service.update_oauth_tokens(
+        provider_id="youtube",
+        access_token=token_data.get("access_token", ""),
+        refresh_token=token_data.get("refresh_token"),
+        expires_in=token_data.get("expires_in"),
+        scopes=scopes,
+        verify_now=True,
+    )
+    record_audit(
+        db,
+        "AccountConnection",
+        "youtube",
+        "owner",
+        "oauth_connected" if result["ok"] else "oauth_verify_failed",
+        None,
+        {"status": result["status"], "account_id": result.get("account_id")},
+    )
+    db.commit()
+
+    if result["ok"]:
+        return RedirectResponse(url="/connections?oauth=success&provider=youtube", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        url=f"/connections?oauth=error&provider=youtube&oauth_error={quote(result['message'])}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/api/connections/youtube/oauth/refresh")
+def api_youtube_oauth_refresh(db: Session = Depends(get_db)):
+    conn_service = ConnectionService(db)
+    return conn_service.refresh_connection_tokens("youtube")
+
+
 # -------------------------------------------------------------
 # API Endpoints: Media Library & Videos
 # -------------------------------------------------------------
 @app.post("/api/media/sync")
 def api_sync_media(db: Session = Depends(get_db)):
     service = MediaLibraryService(db)
-    count = service.sync_renders_from_autoclip()
+    service.sync_renders_from_autoclip()
     return RedirectResponse(url="/media-library", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -366,16 +785,14 @@ def stream_media_legacy(render_id: str, db: Session = Depends(get_db)):
     render = db.query(Render).filter(Render.id == render_id).first()
     if not render or not render.video_path:
         raise HTTPException(status_code=404, detail="Video no encontrado")
-
     path = Path(render.video_path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Archivo de video físico no encontrado en disco")
-
     return FileResponse(path, media_type="video/mp4")
 
 
 # -------------------------------------------------------------
-# API Endpoints: Publisher & Queue
+# API Endpoints: Publisher, Calendar & Queue
 # -------------------------------------------------------------
 class DispatchRequest(BaseModel):
     asset_id: Optional[str] = None
@@ -387,6 +804,7 @@ class DispatchRequest(BaseModel):
     visibility: str = "private"
     scheduled_time: Optional[str] = None
     action: str = "publish_now"
+    platform_overrides: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 @app.post("/api/publisher/dispatch")
@@ -398,20 +816,17 @@ def api_publisher_dispatch(payload: DispatchRequest, db: Session = Depends(get_d
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"El archivo de video no existe: {payload.video_path}")
 
-    # Encontrar o asociar Render
     render = None
     if payload.asset_id:
         asset = db.query(MediaAsset).filter(MediaAsset.id == payload.asset_id).first()
         if asset and asset.render_id:
             render = db.query(Render).filter(Render.id == asset.render_id).first()
 
-    # Si no hay render preexistente, buscar o crear uno genérico
     if not render:
         render = db.query(Render).filter(Render.video_path == payload.video_path).first()
         if not render:
             project = db.query(Project).first()
             if not project:
-                from clipflow.models import Source
                 src = Source(source_kind="file", canonical_source=payload.video_path, local_path=payload.video_path)
                 db.add(src)
                 db.flush()
@@ -429,37 +844,57 @@ def api_publisher_dispatch(payload: DispatchRequest, db: Session = Depends(get_d
             db.flush()
 
     jobs_created = 0
-    publisher = UnifiedPublisher(mock_mode=False)
+    created_ids: List[str] = []
+    conn_service = ConnectionService(db)
+    publisher = UnifiedPublisher(connection_service=conn_service, mock_mode=False)
 
     for plat in payload.platforms:
-        # Generar Draft
-        full_title = payload.title.strip()
-        if plat == "youtube":
+        plat_key = plat.lower().strip()
+        override = (payload.platform_overrides or {}).get(plat_key, {})
+
+        full_title = (override.get("title") or payload.title).strip()
+        if plat_key == "youtube":
             full_title = full_title[:100]
+
+        desc_parts = [override.get("description") or payload.description or ""]
+        tags_str = (override.get("hashtags") or payload.hashtags or "").strip()
+        if tags_str and tags_str not in desc_parts[0]:
+            desc_parts.append(tags_str)
+        final_desc = "\n\n".join(p for p in desc_parts if p).strip()
+
+        vis = (override.get("visibility") or payload.visibility or "private").strip()
+        if plat_key == "tiktok" and vis == "private":
+            vis = "SELF_ONLY"
 
         draft = PostDraft(
             render_id=render.id,
-            platform=plat,
+            platform=plat_key,
             title=full_title,
-            description=payload.description,
-            visibility=payload.visibility,
-            approved_at=utc_now(),
+            description=final_desc,
+            hashtags_json=json.dumps(tags_str.split()) if tags_str else None,
+            visibility=vis,
+            approved_at=utc_now() if payload.action != "draft" else None,
             approval_actor="publisher_ui",
         )
         db.add(draft)
         db.flush()
 
-        import uuid
-        idemp = f"{draft.id}-{plat}-{uuid.uuid4().hex[:8]}"
+        idemp = f"{draft.id}-{plat_key}-{uuid.uuid4().hex[:8]}"
 
         sched_dt = None
-        job_status = JobStatus.QUEUED
-        if payload.scheduled_time:
+        if payload.action == "draft":
+            job_status = JobStatus.DRAFT
+        elif payload.scheduled_time:
             try:
-                sched_dt = datetime.fromisoformat(payload.scheduled_time.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(payload.scheduled_time.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=LOCAL_TZ)
+                sched_dt = parsed.astimezone(timezone.utc)
                 job_status = JobStatus.SCHEDULED
             except Exception:
-                pass
+                raise HTTPException(status_code=400, detail="Formato de fecha/hora programada inválido.")
+        else:
+            job_status = JobStatus.QUEUED
 
         job = PublishJob(
             post_draft_id=draft.id,
@@ -468,19 +903,53 @@ def api_publisher_dispatch(payload: DispatchRequest, db: Session = Depends(get_d
             status=job_status,
         )
         db.add(job)
+        db.flush()
+        created_ids.append(job.id)
         jobs_created += 1
 
     db.commit()
 
-    # Si la acción fue publish_now y no está programado para fecha futura, ejecutar tick del worker
     if payload.action == "publish_now" and not payload.scheduled_time:
         try:
             worker = PublishQueueWorker(lambda: db, publisher)
-            worker.process_due_job(db)
+            for _ in range(jobs_created):
+                worker.process_due_job(db)
         except Exception as e:
-            logger.warning("Fallo al procesar inmediatamente con worker: %s", e)
+            logger.warning("Fallo al procesar inmediatamente con worker: %s", redact_secrets(str(e)))
 
-    return {"ok": True, "jobs_created": jobs_created}
+    return {"ok": True, "jobs_created": jobs_created, "job_ids": created_ids}
+
+
+class RescheduleRequest(BaseModel):
+    scheduled_time: str  # ISO local (America/Santo_Domingo) o con timezone explícito
+
+
+@app.post("/api/jobs/{job_id}/reschedule")
+def api_reschedule_job(job_id: str, payload: RescheduleRequest, db: Session = Depends(get_db)):
+    """Reprograma un trabajo pendiente validando fecha y convirtiendo desde America/Santo_Domingo a UTC."""
+    job = db.query(PublishJob).filter(PublishJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    if job.status not in (JobStatus.SCHEDULED, JobStatus.QUEUED, JobStatus.DRAFT, JobStatus.READY):
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede reprogramar un trabajo en estado {job.status}.",
+        )
+    try:
+        parsed = datetime.fromisoformat(payload.scheduled_time.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=LOCAL_TZ)
+        utc_dt = parsed.astimezone(timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Formato ISO de fecha/hora inválido.")
+
+    old_dt = job.scheduled_at_utc.isoformat() if job.scheduled_at_utc else None
+    job.scheduled_at_utc = utc_dt
+    job.status = JobStatus.SCHEDULED
+    job.updated_at = utc_now()
+    record_audit(db, "PublishJob", job.id, "owner", "rescheduled", {"scheduled_at_utc": old_dt}, {"scheduled_at_utc": utc_dt.isoformat()})
+    db.commit()
+    return {"ok": True, "scheduled_at_utc": utc_dt.isoformat(), "status": job.status}
 
 
 @app.post("/api/jobs/{job_id}/retry")
@@ -488,27 +957,43 @@ def api_retry_job(job_id: str, db: Session = Depends(get_db)):
     job = db.query(PublishJob).filter(PublishJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    if job.status == JobStatus.PUBLISHED:
+        raise HTTPException(status_code=409, detail="El trabajo ya está publicado; no se reintentará para evitar duplicados.")
     job.status = JobStatus.QUEUED
     job.last_error = None
     job.updated_at = utc_now()
+    record_audit(db, "PublishJob", job.id, "owner", "manual_retry", None, {"status": JobStatus.QUEUED})
     db.commit()
     return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/cancel")
 def api_cancel_job(job_id: str, db: Session = Depends(get_db)):
+    """Cancela una tarea local pendiente. Nunca elimina videos ya publicados en YouTube."""
     job = db.query(PublishJob).filter(PublishJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    if job.status in (JobStatus.PUBLISHED, JobStatus.PROCESSING, "REMOTE_PROCESSING"):
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede cancelar una publicación ya subida o publicada en la plataforma remota.",
+        )
+
+    platform = job.post_draft.platform.lower() if job.post_draft else ""
+    if job.remote_post_id and platform != "youtube":
+        pub = UnifiedPublisher(connection_service=ConnectionService(db), mock_mode=False)
+        pub.cancel_scheduled(job.remote_post_id, platform=platform)
+
     job.status = JobStatus.CANCELLED
     job.updated_at = utc_now()
+    record_audit(db, "PublishJob", job.id, "owner", "cancelled", None, {"status": JobStatus.CANCELLED})
     db.commit()
     return {"ok": True}
 
 
 @app.post("/api/worker/tick")
 def api_worker_tick(db: Session = Depends(get_db)):
-    publisher = UnifiedPublisher(mock_mode=False)
+    publisher = UnifiedPublisher(connection_service=ConnectionService(db), mock_mode=False)
     worker = PublishQueueWorker(lambda: db, publisher)
     job = worker.process_due_job(db)
     return {"ok": True, "processed_job_id": job.id if job else None}
@@ -518,13 +1003,21 @@ def api_worker_tick(db: Session = Depends(get_db)):
 def approve_draft_action(draft_id: str, db: Session = Depends(get_db)):
     approval_svc = ApprovalService(db)
     try:
-        job = approval_svc.approve_draft_manually(draft_id, actor="web_admin")
+        approval_svc.approve_draft_manually(draft_id, actor="web_admin")
         draft = db.query(PostDraft).filter(PostDraft.id == draft_id).first()
         if draft and draft.render and draft.render.project_id:
             return RedirectResponse(f"/projects/{draft.render.project_id}", status_code=303)
         return RedirectResponse("/queue", status_code=303)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=redact_secrets(str(e)))
+
+
+# -------------------------------------------------------------
+# API Endpoints: Analytics Reales
+# -------------------------------------------------------------
+@app.get("/api/analytics/summary")
+def api_analytics_summary(db: Session = Depends(get_db)):
+    return _collect_real_analytics(db)
 
 
 # -------------------------------------------------------------
@@ -540,7 +1033,7 @@ def api_inbox_reply(comment_id: str, payload: ReplyRequest, db: Session = Depend
     success = inbox_service.reply_to_comment(comment_id, payload.reply_text)
     if success:
         return {"ok": True}
-    return {"ok": False, "error": "No se pudo enviar la respuesta a través del proveedor"}
+    return {"ok": False, "error": "No se pudo enviar la respuesta a través de la API oficial autorizada."}
 
 
 class AutoReplyConfigRequest(BaseModel):
@@ -556,9 +1049,8 @@ def api_auto_reply_config(payload: AutoReplyConfigRequest, db: Session = Depends
     if not rule:
         rule = AutoReplyRule()
         db.add(rule)
-
     rule.keyword_filter = payload.keyword_filter
-    rule.cooldown_minutes = payload.cooldown_minutes
+    rule.cooldown_minutes = max(5, payload.cooldown_minutes)
     rule.reply_template = payload.reply_template
     rule.is_enabled = payload.is_enabled
     db.commit()
@@ -581,16 +1073,18 @@ def api_auto_reply_toggle(db: Session = Depends(get_db)):
 def api_system_backup():
     try:
         from scripts.backup import create_backup
-        backup_path = create_backup()
+        create_backup()
         return RedirectResponse("/settings", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as e:
-        logger.error("Error en respaldo: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Error en respaldo: %s", redact_secrets(str(e)))
+        raise HTTPException(status_code=500, detail="Error al crear respaldo.")
 
 
 @app.post("/api/system/restore")
 def api_system_restore(backup_name: str = Form(...)):
-    target = Path("data") / "backups" / backup_name
+    # Prevenir path traversal
+    safe_name = Path(backup_name).name
+    target = Path("data") / "backups" / safe_name
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Archivo de respaldo no encontrado")
     from scripts.restore import restore_backup
@@ -602,31 +1096,28 @@ def api_system_restore(backup_name: str = Form(...)):
 
 @app.get("/api/health")
 def api_health(db: Session = Depends(get_db)):
-    # 1. Comprobar base de datos
-    db_ok = True
-    try:
-        db.execute(text("SELECT 1"))
-    except Exception:
-        db_ok = False
-
-    # 2. Comprobar FFmpeg
-    ffmpeg_ok = shutil.which("ffmpeg") is not None
-
+    snap = _system_health_snapshot(db)
     return {
-        "status": "healthy" if (db_ok and ffmpeg_ok) else "degraded",
+        "status": snap["status"],
         "timestamp": utc_now().isoformat(),
-        "database_connected": db_ok,
-        "ffmpeg_available": ffmpeg_ok,
-        "version": "1.0.0",
+        "database_connected": snap["database_connected"],
+        "ffmpeg_available": snap["ffmpeg_available"],
+        "postiz_online": snap["postiz_online"],
+        "version": "2.0.0",
         "environment": "personal_edition",
     }
 
 
 @app.get("/api/status")
 def api_status(db: Session = Depends(get_db)):
+    snap = _system_health_snapshot(db)
     return {
         "status": "ok",
+        "health": snap,
         "projects_count": db.query(Project).count(),
         "renders_count": db.query(Render).count(),
+        "connected_apps_count": db.query(AccountConnection).filter(AccountConnection.status == ConnectionStatus.CONNECTED).count(),
         "queued_jobs": db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.QUEUED, JobStatus.SCHEDULED])).count(),
+        "published_jobs": db.query(PublishJob).filter(PublishJob.status == JobStatus.PUBLISHED).count(),
+        "failed_jobs": db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED"])).count(),
     }

@@ -1,7 +1,6 @@
-# Dockerfile para ClipFlow Publisher & Web Admin (Python 3.11)
-FROM python:3.11-slim
+# Dockerfile para AutoClip Publisher — Personal Edition (FastAPI + Worker supervisados)
+FROM python:3.11.11-slim
 
-# Instalar dependencias del sistema requeridas para FFmpeg y libmagic
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
@@ -10,20 +9,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copiar definiciones de dependencias
 COPY pyproject.toml ./
+COPY src ./src
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e .
 
-# Copiar código fuente
 COPY . .
 
-# Crear directorios de datos
 RUN mkdir -p /app/data /app/runs /app/clips_para_seleccion
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://127.0.0.1:8000/api/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "clipflow.web.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "clipflow.supervisor", "--host", "0.0.0.0", "--port", "8000"]

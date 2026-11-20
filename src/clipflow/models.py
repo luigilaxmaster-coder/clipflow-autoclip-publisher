@@ -124,8 +124,12 @@ class PublishJob(Base):
     scheduled_at_utc = Column(DateTime(timezone=True), nullable=True, index=True)
     status = Column(String(32), default="QUEUED", index=True)  # QUEUED | UPLOADING | REMOTE_PROCESSING | PUBLISHED | REMOTE_REJECTED | RETRYABLE_ERROR | ACTION_REQUIRED | CANCELLED
     remote_request_id = Column(String(64), nullable=True, index=True)
-    remote_post_id = Column(String(64), nullable=True)
+    remote_post_id = Column(String(64), nullable=True, index=True)
     remote_url = Column(String(1024), nullable=True)
+    remote_channel_id = Column(String(128), nullable=True)
+    remote_privacy_status = Column(String(32), nullable=True)
+    upload_session_uri = Column(Text, nullable=True)
+    upload_bytes_sent = Column(Integer, default=0)
     attempt_count = Column(Integer, default=0)
     last_error = Column(Text, nullable=True)
     last_checked_at = Column(DateTime(timezone=True), nullable=True)
@@ -242,6 +246,17 @@ class AutoReplyRule(Base):
     keyword_filter = Column(String(256), nullable=True)  # Comma-separated or empty for all
     cooldown_minutes = Column(Integer, default=60, nullable=False)
     reply_template = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class OAuthState(Base):
+    __tablename__ = "oauth_states"
+
+    state = Column(String(128), primary_key=True)
+    provider_id = Column(String(64), nullable=False, index=True)
+    redirect_uri = Column(String(1024), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 

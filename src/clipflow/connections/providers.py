@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import logging
-import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from clipflow.models import ConnectionStatus
+from clipflow.security import is_mock_allowed, redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,21 @@ class ProviderInfo:
     required_fields: List[str]
     capabilities: List[str]
     doc_url: str
+
+
+def _check_mock_credentials(credentials: Dict[str, Any]) -> Optional[Tuple[bool, str, Dict[str, Any]]]:
+    """
+    Bloquea cualquier intento de usar credenciales simuladas (mock) fuera de pruebas autorizadas.
+    Retorna None si no es mock o si está permitido para que el proveedor prosiga.
+    """
+    if credentials.get("mock"):
+        if not is_mock_allowed():
+            return (
+                False,
+                "Modo mock prohibido en producción. Ningún proveedor puede conectarse con datos simulados.",
+                {"mock_blocked": True},
+            )
+    return None
 
 
 class BaseProvider(ABC):
@@ -62,21 +76,88 @@ class YouTubeProvider(BaseProvider):
             name="YouTube",
             kind="social",
             auth_type="oauth2",
-            description="Publicación de YouTube Shorts y videos regulares mediante Google Data API v3.",
-            known_limits="Cuota oficial: 100 llamadas diarias a videos.insert (1600 unidades por subida). Título máx. 100 caracteres. Desde nov 2026 apps no verificadas pueden publicar videos públicos.",
-            required_fields=["client_id", "client_secret", "access_token"],
+            description="Publicación de YouTube Shorts y videos regulares mediante Google Data API v3 con OAuth 2.0 interactivo.",
+            known_limits="Cuota inicial oficial: 100 llamadas diarias a videos.insert (1600 unidades por subida). Título máx. 100 caracteres. Desde nov 2026 proyectos no verificados pueden elegir privacidad (privado recomendado en pruebas).",
+            required_fields=["client_id", "client_secret"],
             capabilities=["video_upload", "shorts_9_16", "custom_thumbnail", "read_comments", "reply_comments", "analytics"],
             doc_url="https://developers.google.com/youtube/v3/docs/videos/insert",
         )
 
-    def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-        access_token = credentials.get("access_token")
-        if not access_token:
-            return False, "Falta access_token en las credenciales.", {}
+    def refresh_token(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
+        refresh_tok = (credentials.get("refresh_token") or "").strip()
+        client_id = (credentials.get("client_id") or "").strip()
+        client_secret = (credentials.get("client_secret") or "").strip()
+        if not (refresh_tok and client_id and client_secret):
+            raise RuntimeError("Faltan client_id, client_secret o refresh_token para renovar la sesión de YouTube.")
 
-        # Modo mock para pruebas sin conexión
+        resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_tok,
+                "grant_type": "refresh_token",
+            },
+            timeout=15.0,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Error al renovar token de YouTube (HTTP {resp.status_code}).")
+
+        data = resp.json()
+        updated = dict(credentials)
+        if data.get("access_token"):
+            updated["access_token"] = data["access_token"]
+        if data.get("expires_in"):
+            updated["expires_in"] = int(data["expires_in"])
+        if data.get("scope"):
+            updated["scopes"] = data["scope"].split()
+        return updated
+
+    def disconnect(self, credentials: Dict[str, Any]) -> bool:
+        token = credentials.get("refresh_token") or credentials.get("access_token")
+        if token and not credentials.get("mock"):
+            try:
+                requests.post(
+                    "https://oauth2.googleapis.com/revoke",
+                    params={"token": token},
+                    headers={"content-type": "application/x-www-form-urlencoded"},
+                    timeout=10.0,
+                )
+            except Exception:
+                pass
+        return True
+
+    def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
+
         if credentials.get("mock"):
-            return True, "Canal conectado: @OwnerYouTube (Modo Test)", {"channel_id": "UC_MOCK_123", "subscribers": 1500}
+            return True, "Canal conectado: @OwnerYouTube (Modo Test)", {
+                "channel_id": "UC_MOCK_123",
+                "channel_title": "OwnerYouTube",
+                "subscribers": 1500,
+            }
+
+        access_token = (credentials.get("access_token") or "").strip()
+        refresh_tok = (credentials.get("refresh_token") or "").strip()
+        refreshed_creds: Optional[Dict[str, Any]] = None
+
+        if not access_token and refresh_tok and credentials.get("client_id") and credentials.get("client_secret"):
+            try:
+                refreshed_creds = self.refresh_token(credentials)
+                access_token = refreshed_creds.get("access_token", "")
+            except Exception as e:
+                return False, redact_secrets(f"No se pudo renovar el token OAuth de YouTube: {e}"), {"status": 401}
+
+        if not access_token:
+            if credentials.get("client_id") and credentials.get("client_secret"):
+                return (
+                    False,
+                    "Client ID y Client Secret guardados. Falta completar la autorización interactiva con Google OAuth 2.0.",
+                    {"needs_oauth": True},
+                )
+            return False, "Faltan credenciales OAuth de YouTube (client_id, client_secret y autorización).", {}
 
         try:
             resp = requests.get(
@@ -84,18 +165,42 @@ class YouTubeProvider(BaseProvider):
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=10.0,
             )
+            if resp.status_code == 401 and refresh_tok and credentials.get("client_id") and credentials.get("client_secret"):
+                try:
+                    refreshed_creds = self.refresh_token(credentials)
+                    access_token = refreshed_creds.get("access_token", "")
+                    resp = requests.get(
+                        "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                        timeout=10.0,
+                    )
+                except Exception as e:
+                    return False, redact_secrets(f"Token expirado y fallo en renovación automática: {e}"), {"status": 401}
+
             if resp.status_code == 200:
                 items = resp.json().get("items", [])
                 if items:
-                    title = items[0].get("snippet", {}).get("title", "Canal")
-                    sub_count = items[0].get("statistics", {}).get("subscriberCount", "0")
-                    return True, f"Canal verificado: '{title}' ({sub_count} suscriptores).", items[0]
-                return True, "Autenticado con Google, pero sin canal activo de YouTube.", {}
+                    ch = items[0]
+                    title = ch.get("snippet", {}).get("title", "Canal")
+                    ch_id = ch.get("id", "")
+                    sub_count = ch.get("statistics", {}).get("subscriberCount", "0")
+                    diag: Dict[str, Any] = {
+                        "channel_id": ch_id,
+                        "channel_title": title,
+                        "subscribers": sub_count,
+                        "raw": ch,
+                    }
+                    if refreshed_creds:
+                        diag["_refreshed_credentials"] = refreshed_creds
+                    return True, f"Canal verificado: '{title}' (ID: {ch_id}, {sub_count} suscriptores).", diag
+                return False, "Cuenta Google autenticada, pero no se encontró un canal de YouTube activo.", {}
             elif resp.status_code == 401:
-                return False, "El token de acceso ha expirado o es inválido. Se requiere renovación OAuth.", {"status": 401}
-            return False, f"Error HTTP {resp.status_code}: {resp.text[:200]}", {"status": resp.status_code}
+                return False, "El token de acceso ha expirado o es inválido. Se requiere re-autorización OAuth.", {"status": 401}
+            elif resp.status_code == 403:
+                return False, "Permisos insuficientes o YouTube Data API v3 no habilitada en Google Cloud.", {"status": 403}
+            return False, redact_secrets(f"Error HTTP {resp.status_code} desde YouTube API."), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Excepción de conexión con YouTube: {e}", {}
+            return False, redact_secrets(f"Excepción de conexión con YouTube: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -117,6 +222,9 @@ class TikTokProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de TikTok.", {}
@@ -132,9 +240,9 @@ class TikTokProvider(BaseProvider):
                 data = resp.json().get("data", {}).get("user", {})
                 name = data.get("display_name", "TikTok User")
                 return True, f"Cuenta verificada: {name} (Restricción por defecto: SELF_ONLY)", data
-            return False, f"TikTok HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"TikTok HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error al verificar TikTok: {e}", {}
+            return False, redact_secrets(f"Error al verificar TikTok: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -156,6 +264,9 @@ class InstagramProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         ig_id = credentials.get("instagram_account_id")
         if not token or not ig_id:
@@ -164,15 +275,17 @@ class InstagramProvider(BaseProvider):
             return True, f"Instagram Pro conectado: ID {ig_id}", {"username": "instagram_owner"}
         try:
             resp = requests.get(
-                f"https://graph.facebook.com/v19.0/{ig_id}?fields=username,name,profile_picture_url&access_token={token}",
+                f"https://graph.facebook.com/v19.0/{ig_id}",
+                params={"fields": "username,name,profile_picture_url"},
+                headers={"Authorization": f"Bearer {token}"},
                 timeout=10.0,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"Cuenta verificada: @{data.get('username')}", data
-            return False, f"Instagram HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"Instagram HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error al consultar Instagram: {e}", {}
+            return False, redact_secrets(f"Error al consultar Instagram: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -194,6 +307,9 @@ class FacebookPagesProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("page_access_token")
         page_id = credentials.get("page_id")
         if not token or not page_id:
@@ -202,15 +318,17 @@ class FacebookPagesProvider(BaseProvider):
             return True, f"Página de Facebook conectada: ID {page_id}", {"name": "Mi Página"}
         try:
             resp = requests.get(
-                f"https://graph.facebook.com/v19.0/{page_id}?fields=name,link,fan_count&access_token={token}",
+                f"https://graph.facebook.com/v19.0/{page_id}",
+                params={"fields": "name,link,fan_count"},
+                headers={"Authorization": f"Bearer {token}"},
                 timeout=10.0,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"Página confirmada: '{data.get('name')}' ({data.get('fan_count', 0)} fans)", data
-            return False, f"Facebook HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"Facebook HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Facebook: {e}", {}
+            return False, redact_secrets(f"Error en Facebook: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -232,19 +350,27 @@ class ThreadsProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de Threads.", {}
         if credentials.get("mock"):
             return True, "Cuenta Threads conectada.", {"username": "threads_owner"}
         try:
-            resp = requests.get(f"https://graph.threads.net/v1.0/me?fields=id,username&access_token={token}", timeout=10.0)
+            resp = requests.get(
+                "https://graph.threads.net/v1.0/me",
+                params={"fields": "id,username"},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"Threads verificado: @{data.get('username')}", data
-            return False, f"Threads HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"Threads HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Threads: {e}", {}
+            return False, redact_secrets(f"Error en Threads: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -266,6 +392,9 @@ class XProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("bearer_token")
         if not token:
             return False, "Falta bearer_token de X.", {}
@@ -280,9 +409,9 @@ class XProvider(BaseProvider):
             if resp.status_code == 200:
                 data = resp.json().get("data", {})
                 return True, f"X verificado: @{data.get('username')}", data
-            return False, f"X API HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"X API HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en X API: {e}", {}
+            return False, redact_secrets(f"Error en X API: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -304,6 +433,9 @@ class LinkedInProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de LinkedIn.", {}
@@ -318,9 +450,9 @@ class LinkedInProvider(BaseProvider):
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"LinkedIn verificado: {data.get('name')}", data
-            return False, f"LinkedIn HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"LinkedIn HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en LinkedIn: {e}", {}
+            return False, redact_secrets(f"Error en LinkedIn: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -342,18 +474,25 @@ class PinterestProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de Pinterest.", {}
         if credentials.get("mock"):
             return True, "Pinterest conectado: @pinterest_owner", {}
         try:
-            resp = requests.get("https://api.pinterest.com/v5/user_account", headers={"Authorization": f"Bearer {token}"}, timeout=10.0)
+            resp = requests.get(
+                "https://api.pinterest.com/v5/user_account",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
             if resp.status_code == 200:
                 return True, f"Pinterest verificado: @{resp.json().get('username')}", resp.json()
-            return False, f"Pinterest HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"Pinterest HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Pinterest: {e}", {}
+            return False, redact_secrets(f"Error en Pinterest: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -375,6 +514,9 @@ class BlueskyProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         handle = credentials.get("handle")
         password = credentials.get("app_password")
         if not handle or not password:
@@ -390,9 +532,9 @@ class BlueskyProvider(BaseProvider):
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"Bluesky verificado: @{data.get('handle')}", {"did": data.get("did")}
-            return False, f"Bluesky HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, redact_secrets(f"Bluesky HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Bluesky: {e}", {}
+            return False, redact_secrets(f"Error en Bluesky: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -414,13 +556,30 @@ class RedditProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         if credentials.get("mock"):
             return True, "Reddit conectado: u/reddit_owner", {}
         client_id = credentials.get("client_id")
         secret = credentials.get("client_secret")
-        if not client_id or not secret:
-            return False, "Faltan client_id o client_secret de Reddit.", {}
-        return True, "Configuración de credenciales de Reddit presente.", {}
+        username = credentials.get("username")
+        password = credentials.get("password")
+        if not all([client_id, secret, username, password]):
+            return False, "Faltan client_id, client_secret, username o password de Reddit.", {}
+        try:
+            resp = requests.post(
+                "https://www.reddit.com/api/v1/access_token",
+                auth=(client_id, secret),
+                data={"grant_type": "password", "username": username, "password": password},
+                headers={"User-Agent": "AutoClipPublisher/1.0"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200 and resp.json().get("access_token"):
+                return True, f"Reddit verificado: u/{username}", {"username": username}
+            return False, f"Reddit rechazó la autenticación (HTTP {resp.status_code}).", {"status": resp.status_code}
+        except Exception as e:
+            return False, redact_secrets(f"Error al verificar Reddit: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -442,6 +601,9 @@ class TelegramProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("bot_token")
         chat_id = credentials.get("chat_id")
         if not token or not chat_id:
@@ -450,12 +612,12 @@ class TelegramProvider(BaseProvider):
             return True, f"Telegram Bot conectado a chat {chat_id}", {"username": "clipflow_bot"}
         try:
             resp = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10.0)
-            if resp.status_code == 200:
+            if resp.status_code == 200 and resp.json().get("ok"):
                 data = resp.json().get("result", {})
                 return True, f"Bot activo: @{data.get('username')}", data
-            return False, f"Telegram HTTP {resp.status_code}: {resp.text[:150]}", {}
+            return False, f"Telegram HTTP {resp.status_code}", {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Telegram: {e}", {}
+            return False, redact_secrets(f"Error en Telegram: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -477,6 +639,9 @@ class DiscordProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         url = credentials.get("webhook_url")
         if not url:
             return False, "Falta webhook_url de Discord.", {}
@@ -487,9 +652,9 @@ class DiscordProvider(BaseProvider):
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"Webhook de Discord verificado para canal ID: {data.get('channel_id')}", data
-            return False, f"Discord Webhook HTTP {resp.status_code}", {}
+            return False, f"Discord Webhook HTTP {resp.status_code}", {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Discord Webhook: {e}", {}
+            return False, redact_secrets(f"Error en Discord Webhook: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -511,6 +676,9 @@ class WordPressProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         site = credentials.get("site_url")
         user = credentials.get("username")
         pwd = credentials.get("app_password")
@@ -524,9 +692,9 @@ class WordPressProvider(BaseProvider):
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"WordPress verificado para usuario '{data.get('name')}'", data
-            return False, f"WordPress HTTP {resp.status_code}", {}
+            return False, f"WordPress HTTP {resp.status_code}", {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en WordPress: {e}", {}
+            return False, redact_secrets(f"Error en WordPress: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -541,16 +709,33 @@ class GoogleBusinessProvider(BaseProvider):
             kind="social",
             auth_type="oauth2",
             description="Publicación de actualizaciones y videos en el perfil de empresa de Google.",
-            known_limits="Requiere verificación del perfil de negocio en Google.",
+            known_limits="Requiere verificación del perfil de negocio y aprobación de API en Google Cloud.",
             required_fields=["access_token", "account_id", "location_id"],
             capabilities=["local_post", "media_upload"],
             doc_url="https://developers.google.com/my-business",
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         if credentials.get("mock"):
             return True, "Google Business Profile verificado.", {}
-        return True, "Credenciales presentes.", {}
+        token = credentials.get("access_token")
+        if not token:
+            return False, "Falta access_token de Google Business Profile.", {}
+        try:
+            resp = requests.get(
+                "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                accounts = resp.json().get("accounts", [])
+                return True, f"Google Business verificado ({len(accounts)} cuentas).", {"accounts_count": len(accounts)}
+            return False, f"Google Business HTTP {resp.status_code} (verifique aprobación de API).", {"status": resp.status_code}
+        except Exception as e:
+            return False, redact_secrets(f"Error en Google Business Profile: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -572,19 +757,26 @@ class GoogleDriveProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de Google Drive.", {}
         if credentials.get("mock"):
             return True, "Google Drive conectado y carpeta accesible.", {}
         try:
-            resp = requests.get("https://www.googleapis.com/drive/v3/about?fields=user", headers={"Authorization": f"Bearer {token}"}, timeout=10.0)
+            resp = requests.get(
+                "https://www.googleapis.com/drive/v3/about?fields=user",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
             if resp.status_code == 200:
                 user = resp.json().get("user", {})
                 return True, f"Google Drive verificado: {user.get('displayName')} ({user.get('emailAddress')})", user
-            return False, f"Google Drive HTTP {resp.status_code}", {}
+            return False, f"Google Drive HTTP {resp.status_code}", {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Google Drive: {e}", {}
+            return False, redact_secrets(f"Error en Google Drive: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -606,19 +798,26 @@ class OneDriveProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de OneDrive.", {}
         if credentials.get("mock"):
             return True, "OneDrive conectado.", {}
         try:
-            resp = requests.get("https://graph.microsoft.com/v1.0/me/drive", headers={"Authorization": f"Bearer {token}"}, timeout=10.0)
+            resp = requests.get(
+                "https://graph.microsoft.com/v1.0/me/drive",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"OneDrive verificado: Tipo {data.get('driveType')}", data
-            return False, f"OneDrive HTTP {resp.status_code}", {}
+            return False, f"OneDrive HTTP {resp.status_code}", {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en OneDrive: {e}", {}
+            return False, redact_secrets(f"Error en OneDrive: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -640,19 +839,26 @@ class DropboxProvider(BaseProvider):
         )
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+        blocked = _check_mock_credentials(credentials)
+        if blocked:
+            return blocked
         token = credentials.get("access_token")
         if not token:
             return False, "Falta access_token de Dropbox.", {}
         if credentials.get("mock"):
             return True, "Dropbox conectado.", {}
         try:
-            resp = requests.post("https://api.dropboxapi.com/2/users/get_current_account", headers={"Authorization": f"Bearer {token}"}, timeout=10.0)
+            resp = requests.post(
+                "https://api.dropboxapi.com/2/users/get_current_account",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 return True, f"Dropbox verificado: {data.get('name', {}).get('display_name')}", data
-            return False, f"Dropbox HTTP {resp.status_code}", {}
+            return False, f"Dropbox HTTP {resp.status_code}", {"status": resp.status_code}
         except Exception as e:
-            return False, f"Error en Dropbox: {e}", {}
+            return False, redact_secrets(f"Error en Dropbox: {e}"), {}
 
 
 # -------------------------------------------------------------
@@ -683,7 +889,6 @@ class LocalDirectoryProvider(BaseProvider):
         if not p.is_dir():
             return False, f"La ruta '{path_str}' no es un directorio.", {}
 
-        # Contar archivos de video
         video_count = sum(1 for ext in ("*.mp4", "*.mov", "*.mkv") for _ in p.glob(ext))
         return True, f"Directorio accesible con {video_count} videos detectados.", {"path": str(p), "video_count": video_count}
 

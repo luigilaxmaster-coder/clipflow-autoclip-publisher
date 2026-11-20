@@ -43,12 +43,13 @@ def test_connection_service_lifecycle(db_session: Session):
     all_conns = service.list_connections()
     assert len(all_conns) == 18
 
-    # 2. Guardar credenciales de YouTube con diagnóstico en mock
+    # 2. Guardar credenciales de YouTube con diagnóstico en mock explícito de prueba
     res = service.save_connection(
         provider_id="youtube",
         account_name="@CanalPrincipal",
         credentials={"access_token": "mock-token", "mock": True},
         test_now=True,
+        allow_mock=True,
     )
     assert res["ok"] is True
     assert res["status"] == ConnectionStatus.CONNECTED
