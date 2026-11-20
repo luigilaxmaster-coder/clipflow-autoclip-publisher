@@ -59,3 +59,4 @@ Los módulos `src/clipflow/metadata.py` y `src/clipflow/multiagent.py` leen auto
 ```powershell
 .\.venv\Scripts\python.exe scripts/run_trend_radar.py --region es --limit 10
 ```
+

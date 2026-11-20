@@ -52,3 +52,4 @@ def test_metadata_generator_applies_formula(tmp_path: Path):
     # No debe contener emojis
     import re
     assert not re.search(r'[\U00010000-\U0010ffff]', res["title"])
+

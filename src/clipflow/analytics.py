@@ -184,3 +184,4 @@ class PerformanceAnalyzer:
             except Exception:
                 pass
         return None
+
