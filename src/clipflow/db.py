@@ -38,6 +38,11 @@ def init_db(database_url: Optional[str] = None) -> None:
     Base.metadata.create_all(bind=engine)
 
 
+def get_session(database_url: Optional[str] = None) -> Session:
+    """Retorna una nueva sesión de SQLAlchemy."""
+    return get_session_factory(database_url)()
+
+
 def get_db(database_url: Optional[str] = None) -> Generator[Session, None, None]:
     """Generador de sesiones de base de datos para FastAPI Depends."""
     factory = get_session_factory(database_url)
