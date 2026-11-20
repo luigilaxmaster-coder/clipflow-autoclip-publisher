@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Automations — AutoClip Publisher{% endblock %}
+{% block page_title %}Flujos & Reglas Automáticas{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Header Banner -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+    <div>
+      <h3 class="font-semibold text-sm text-white flex items-center">
+        <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-2"></i> Motor de Automatización AutoClip
+      </h3>
+      <p class="text-xs text-slate-400 mt-0.5">
+        Define disparadores y acciones para convertir cortes sin intervención manual: QA automático, programación inteligente y metadatos virales.
+      </p>
+    </div>
+  </div>
+
+  <!-- Rules Grid -->
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+
+    <!-- Rule 1: Auto-Approve on QA Passed -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">
+            <i class="fa-solid fa-clipboard-check"></i>
+          </span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            ACTIVA
+          </span>
+        </div>
+        <h4 class="font-bold text-sm text-white mb-1">Aprobación Automática MediaQA</h4>
+        <p class="text-xs text-slate-400 leading-relaxed mb-4">
+          Si un render vertical 9:16 cumple 100% de las reglas FFprobe (duración 15-60s, H.264/AAC, sin corrupción), pasa automáticamente a estado <code>READY</code> para publicación.
+        </p>
+      </div>
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <span>Disparador: Render completado</span>
+        <span class="text-emerald-400 font-medium">Auto-Aprobar</span>
+      </div>
+    </div>
+
+    <!-- Rule 2: Optimal Time Scheduling -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center text-sm">
+            <i class="fa-solid fa-calendar-check"></i>
+          </span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+            PROGRAMADOR
+          </span>
+        </div>
+        <h4 class="font-bold text-sm text-white mb-1">Ventanas de Mayor Tracción</h4>
+        <p class="text-xs text-slate-400 leading-relaxed mb-4">
+          Distribuye los clips listos en los 3 horarios de mayor retención de YouTube Shorts: <strong>10:00 AM</strong>, <strong>03:00 PM</strong> y <strong>08:00 PM</strong> (hora Santo Domingo UTC-4).
+        </p>
+      </div>
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <span>Cadencia: Máx 3 clips/día</span>
+        <span class="text-indigo-400 font-medium">Reparto Inteligente</span>
+      </div>
+    </div>
+
+    <!-- Rule 3: Viral Formula Titles -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <span class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-sm">
+            <i class="fa-solid fa-bolt"></i>
+          </span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            ACTIVA
+          </span>
+        </div>
+        <h4 class="font-bold text-sm text-white mb-1">Fórmula Ganadora de Metadatos</h4>
+        <p class="text-xs text-slate-400 leading-relaxed mb-4">
+          Genera titulares sin emojis, estructurados con disparadores de alta curiosidad derivados del rendimiento real de los videos anteriores.
+        </p>
+      </div>
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <span>Módulo: metadata.py</span>
+        <span class="text-indigo-400 font-medium">Retroalimentado</span>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

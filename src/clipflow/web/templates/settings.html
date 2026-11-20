@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — AutoClip Publisher{% endblock %}
+{% block page_title %}Configuración, Seguridad & Diagnósticos{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-5xl">
+
+  <!-- Security & Single-Owner Profile -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+      <div>
+        <h3 class="font-bold text-sm text-white flex items-center">
+          <i class="fa-solid fa-shield-halved text-indigo-400 mr-2"></i> Seguridad & Propietario Único
+        </h3>
+        <p class="text-xs text-slate-400 mt-0.5">
+          Instancia privada para un solo propietario. Sin suscripciones, cobros ni accesos de terceros.
+        </p>
+      </div>
+      <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+        <i class="fa-solid fa-lock mr-1"></i> Modo Seguro
+      </span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 text-xs">
+      <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block mb-1">Cifrado de Credenciales OAuth:</span>
+        <div class="font-semibold text-emerald-400 flex items-center mt-1">
+          <i class="fa-solid fa-key mr-1.5"></i> Fernet 256-bit (Clave en disco local protegida)
+        </div>
+      </div>
+
+      <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block mb-1">Control de Acceso al Panel:</span>
+        <div class="font-semibold text-slate-200 flex items-center mt-1">
+          <i class="fa-solid fa-user-check mr-1.5 text-indigo-400"></i> Token de Propietario (Cookie / Header)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup & Disaster Recovery -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+      <div>
+        <h3 class="font-bold text-sm text-white flex items-center">
+          <i class="fa-solid fa-database text-indigo-400 mr-2"></i> Copias de Seguridad & Restauración
+        </h3>
+        <p class="text-xs text-slate-400 mt-0.5">
+          Respaldo atómico de SQLite y credenciales cifradas con verificación de integridad.
+        </p>
+      </div>
+      <form action="/api/system/backup" method="post" class="inline">
+        <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition">
+          <i class="fa-solid fa-download mr-1.5"></i> Crear Respaldo Ahora
+        </button>
+      </form>
+    </div>
+
+    <div class="mt-4">
+      <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Respaldos Disponibles en Disco:</h4>
+      <div class="space-y-2">
+        {% if backups %}
+          {% for b in backups %}
+            <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 flex items-center justify-between text-xs">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-file-zipper text-indigo-400"></i>
+                <span class="font-mono text-slate-200">{{ b.name }}</span>
+                <span class="text-slate-500">({{ b.size }} bytes)</span>
+              </div>
+              <form action="/api/system/restore" method="post" class="inline" onsubmit="return confirm('¿Restaurar la base de datos desde este respaldo? Se sobrescribirán los datos actuales.');">
+                <input type="hidden" name="backup_name" value="{{ b.name }}">
+                <button type="submit" class="text-amber-400 hover:text-amber-300 font-medium">
+                  <i class="fa-solid fa-clock-rotate-left mr-1"></i> Restaurar
+                </button>
+              </form>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-xs text-slate-500 py-2">No hay copias de seguridad archivadas aún.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- System Health Diagnostics -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+    <h3 class="font-bold text-sm text-white mb-4 flex items-center">
+      <i class="fa-solid fa-heart-pulse text-emerald-400 mr-2"></i> Diagnóstico de Salud del Sistema
+    </h3>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+      <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block mb-1">Base de Datos SQLite:</span>
+        <span class="text-emerald-400 font-semibold flex items-center">
+          <i class="fa-solid fa-check-circle mr-1.5"></i> Integridad OK (WAL Mode)
+        </span>
+      </div>
+
+      <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block mb-1">Motor FFmpeg Local:</span>
+        <span class="text-emerald-400 font-semibold flex items-center">
+          <i class="fa-solid fa-check-circle mr-1.5"></i> Instalado en PATH
+        </span>
+      </div>
+
+      <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+        <span class="text-slate-400 block mb-1">Zona Horaria Configurada:</span>
+        <span class="text-slate-200 font-semibold flex items-center">
+          <i class="fa-regular fa-clock mr-1.5 text-amber-400"></i> America/Santo_Domingo (UTC-4)
+        </span>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

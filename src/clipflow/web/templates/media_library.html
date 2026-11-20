@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Media Library — AutoClip Publisher{% endblock %}
+{% block page_title %}Biblioteca Central de Contenidos{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Library Header & Actions -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="flex items-center space-x-3 w-full sm:w-auto">
+      <div class="relative flex-1 sm:w-80">
+        <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-500 text-xs"></i>
+        <input type="text" id="searchInput" placeholder="Buscar clips por título o etiqueta..." class="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
+      </div>
+      <div class="text-xs text-slate-400">
+        {{ assets|length }} recursos indexados
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-2">
+      <form action="/api/media/sync" method="post" class="inline">
+        <button type="submit" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition flex items-center">
+          <i class="fa-solid fa-arrows-rotate mr-1.5"></i> Sincronizar AutoClip Renders
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Media Grid -->
+  {% if assets %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+      {% for asset in assets %}
+        <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm hover:border-slate-700 transition flex flex-col justify-between">
+          <div>
+            <!-- Video / Thumbnail Container (9:16 vertical ratio) -->
+            <div class="relative w-full aspect-[9/16] bg-black overflow-hidden group">
+              {% if asset.thumbnail_path %}
+                <img src="/api/media/thumbnail/{{ asset.id }}" alt="{{ asset.title }}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+              {% else %}
+                <div class="w-full h-full flex items-center justify-center text-slate-700">
+                  <i class="fa-solid fa-film text-3xl"></i>
+                </div>
+              {% endif %}
+
+              <!-- Duration & Resolution Badges -->
+              <div class="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
+                <span class="px-2 py-0.5 rounded bg-black/75 backdrop-blur text-[10px] text-white font-mono">
+                  {{ "%.1f"|format(asset.duration_sec or 0) }}s
+                </span>
+                <span class="px-2 py-0.5 rounded bg-black/75 backdrop-blur text-[10px] text-slate-300 font-mono">
+                  {{ asset.width }}x{{ asset.height }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Content Details -->
+            <div class="p-3.5">
+              <h4 class="font-semibold text-xs text-white line-clamp-2 mb-1" title="{{ asset.title }}">
+                {{ asset.title }}
+              </h4>
+              <p class="text-[11px] text-slate-500 truncate" title="{{ asset.file_path }}">
+                {{ asset.file_path.split('\\')[-1].split('/')[-1] }}
+              </p>
+            </div>
+          </div>
+
+          <!-- Actions Footer -->
+          <div class="p-3 border-t border-slate-800/80 bg-slate-950/40 flex items-center justify-between gap-2">
+            <a href="/publisher?asset_id={{ asset.id }}" class="flex-1 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold border border-indigo-500/30 text-center transition">
+              <i class="fa-solid fa-paper-plane mr-1"></i> Publicar
+            </a>
+            <a href="/api/media/asset/{{ asset.id }}" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs border border-slate-700 transition" title="Ver archivo">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i>
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
+      <i class="fa-solid fa-photo-film text-4xl mb-3 text-slate-600 block"></i>
+      <h3 class="text-sm font-semibold text-slate-300 mb-1">No hay videos indexados en la biblioteca</h3>
+      <p class="text-xs text-slate-500 max-w-sm mx-auto mb-4">
+        Haz clic en el botón para importar automáticamente los renders generados por el motor de AutoClip.
+      </p>
+      <form action="/api/media/sync" method="post" class="inline">
+        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition">
+          <i class="fa-solid fa-arrows-rotate mr-1.5"></i> Sincronizar Clips de AutoClip
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

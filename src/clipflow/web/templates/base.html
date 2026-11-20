@@ -1,49 +1,140 @@
 <!DOCTYPE html>
-<html lang="es" class="h-full bg-slate-900 text-slate-100">
+<html lang="es" class="h-full bg-slate-950 text-slate-100">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}ClipFlow Admin Panel{% endblock %}</title>
+  <title>{% block title %}AutoClip Publisher — Personal Edition{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
 </head>
-<body class="min-h-full flex flex-col font-sans antialiased">
-  <!-- Navbar -->
-  <nav class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        <div class="flex items-center space-x-3">
-          <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-indigo-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <i class="fa-solid fa-scissors text-white text-lg"></i>
-          </div>
-          <div>
-            <span class="font-bold text-lg bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">ClipFlow</span>
-            <span class="text-xs px-2 py-0.5 ml-2 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">AutoClip Publisher</span>
-          </div>
-        </div>
-        <div class="flex items-center space-x-4 text-sm">
-          <a href="/" class="hover:text-indigo-400 px-3 py-1.5 rounded-md transition {% if request.url.path == '/' %}text-indigo-400 bg-slate-700/50{% endif %}">
-            <i class="fa-solid fa-table-columns mr-1.5"></i> Proyectos
-          </a>
-          <a href="/queue" class="hover:text-indigo-400 px-3 py-1.5 rounded-md transition {% if request.url.path == '/queue' %}text-indigo-400 bg-slate-700/50{% endif %}">
-            <i class="fa-solid fa-list-check mr-1.5"></i> Cola & Publicaciones
-          </a>
-          <a href="/audit" class="hover:text-indigo-400 px-3 py-1.5 rounded-md transition {% if request.url.path == '/audit' %}text-indigo-400 bg-slate-700/50{% endif %}">
-            <i class="fa-solid fa-shield-halved mr-1.5"></i> Auditoría
-          </a>
-        </div>
+<body class="h-full flex overflow-hidden font-sans antialiased bg-slate-950 text-slate-100">
+  
+  <!-- Sidebar -->
+  <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0 select-none z-20">
+    <!-- Brand Header -->
+    <div class="h-16 flex items-center px-5 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-rose-500 flex items-center justify-center shadow-md shadow-indigo-500/20 mr-3">
+        <i class="fa-solid fa-bolt text-white text-sm"></i>
+      </div>
+      <div>
+        <div class="font-extrabold text-base tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">AUTOCLIP</div>
+        <div class="text-[10px] uppercase tracking-wider text-indigo-400 font-semibold">ClipFlow Publisher · Personal</div>
       </div>
     </div>
-  </nav>
 
-  <!-- Main Content -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    {% block content %}{% endblock %}
-  </main>
+    <!-- Navigation Links -->
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto text-sm">
+      <div class="px-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Gestión & Control</div>
+      
+      <a href="/" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/' or request.url.path == '/overview' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-chart-pie w-5 mr-2.5 text-center"></i> Overview
+      </a>
 
-  <!-- Footer -->
-  <footer class="bg-slate-800/40 border-t border-slate-800 py-4 text-center text-xs text-slate-500">
-    <p>AutoClip Publisher &copy; 2026 &middot; Motor AutoClip Studio & Upload-Post Integrado</p>
-  </footer>
+      <a href="/connections" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/connections' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-plug w-5 mr-2.5 text-center"></i> Connected Apps
+      </a>
+
+      <a href="/publisher" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/publisher' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-paper-plane w-5 mr-2.5 text-center"></i> Publisher
+      </a>
+
+      <a href="/calendar" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/calendar' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-calendar-days w-5 mr-2.5 text-center"></i> Calendar
+      </a>
+
+      <a href="/media-library" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/media-library' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-photo-film w-5 mr-2.5 text-center"></i> Media Library
+      </a>
+
+      <div class="pt-4 px-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Interacción & Reglas</div>
+
+      <a href="/analytics" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/analytics' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-chart-line w-5 mr-2.5 text-center"></i> Analytics
+      </a>
+
+      <a href="/inbox" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/inbox' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-inbox w-5 mr-2.5 text-center"></i> Inbox & Mensajes
+      </a>
+
+      <a href="/automations" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/automations' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-wand-magic-sparkles w-5 mr-2.5 text-center"></i> Automations
+      </a>
+
+      <div class="pt-4 px-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Operaciones</div>
+
+      <a href="/queue" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/queue' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-clock-rotate-left w-5 mr-2.5 text-center"></i> Queue & Jobs
+      </a>
+
+      <a href="/settings" class="flex items-center px-3 py-2 rounded-lg transition-colors {% if request.url.path == '/settings' %}bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium{% else %}text-slate-400 hover:text-slate-200 hover:bg-slate-800/60{% endif %}">
+        <i class="fa-solid fa-gear w-5 mr-2.5 text-center"></i> Settings
+      </a>
+    </nav>
+
+    <!-- System Status Footer -->
+    <div class="p-4 border-t border-slate-800/80 bg-slate-900/40 text-xs text-slate-400">
+      <div class="flex items-center justify-between mb-1">
+        <span class="flex items-center">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-2"></span>
+          Motor Local
+        </span>
+        <span class="text-[11px] text-slate-400 font-mono">AutoClip v1.5</span>
+      </div>
+      <div class="text-[11px] text-slate-400">Owner Workspace &middot; Modo Privado</div>
+    </div>
+  </aside>
+
+  <!-- Content Container -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <!-- Top Bar -->
+    <header class="h-16 border-b border-slate-800/80 bg-slate-900/40 backdrop-blur px-6 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center space-x-3">
+        <h1 class="text-lg font-semibold text-white">{% block page_title %}Overview{% endblock %}</h1>
+      </div>
+      <div class="flex items-center space-x-3">
+        <a href="/publisher" class="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm shadow-indigo-600/30 transition">
+          <i class="fa-solid fa-plus mr-1.5"></i> Nueva Publicación
+        </a>
+        <div class="w-px h-6 bg-slate-800"></div>
+        <div class="flex items-center space-x-2 text-xs text-slate-400">
+          <i class="fa-solid fa-user-shield text-indigo-400"></i>
+          <span class="font-medium text-slate-300">Propietario Único</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Scrollable Body -->
+    <main class="flex-1 overflow-y-auto p-6 bg-slate-950">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% block scripts %}{% endblock %}
 </body>
 </html>

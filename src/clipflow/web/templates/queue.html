@@ -1,92 +1,188 @@
 {% extends "base.html" %}
 
-{% block title %}Cola de Publicación &middot; ClipFlow{% endblock %}
+{% block title %}Queue & Jobs — AutoClip Publisher{% endblock %}
+{% block page_title %}Cola de Publicación & Trabajos Persistentes{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-  <div class="flex items-center justify-between">
+
+  <!-- Header Controls -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
     <div>
-      <h1 class="text-xl font-bold text-white flex items-center">
-        <i class="fa-solid fa-list-check mr-2 text-indigo-400"></i> Trabajos de Publicación y Programación
-      </h1>
-      <p class="text-xs text-slate-400 mt-1">
-        Trazabilidad de envíos a YouTube Shorts y TikTok mediante Upload-Post.
+      <h3 class="font-semibold text-sm text-white flex items-center">
+        <i class="fa-solid fa-clock-rotate-left text-indigo-400 mr-2"></i> Trabajos de Publicación & Monitor de Estados
+      </h3>
+      <p class="text-xs text-slate-400 mt-0.5">
+        Gestión transaccional persistente en SQLite. 10 estados explícitos con control de idempotencia y backoff exponencial.
       </p>
+    </div>
+
+    <div class="flex items-center space-x-2 text-xs">
+      <span class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">
+        Total: {{ jobs|length }} trabajos
+      </span>
+      <form action="/api/worker/tick" method="post" class="inline">
+        <button type="submit" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium shadow-sm transition">
+          <i class="fa-solid fa-play mr-1"></i> Despachar Ahora
+        </button>
+      </form>
     </div>
   </div>
 
-  <div class="bg-slate-800/60 rounded-xl border border-slate-700/50 overflow-hidden shadow-xl">
-    {% if not jobs %}
-    <div class="p-12 text-center text-slate-400">
-      <i class="fa-solid fa-inbox text-4xl mb-3 text-slate-600"></i>
-      <p class="text-sm">No hay trabajos registrados en la cola de publicación.</p>
-    </div>
-    {% else %}
+  <!-- Jobs Table -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
     <div class="overflow-x-auto">
-      <table class="w-full text-left text-sm text-slate-300">
-        <thead class="bg-slate-900/50 text-xs uppercase text-slate-400 border-b border-slate-700/50">
+      <table class="w-full text-left text-xs text-slate-300">
+        <thead class="bg-slate-950/60 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
           <tr>
-            <th class="px-6 py-3">ID Trabajo</th>
-            <th class="px-6 py-3">Plataforma</th>
-            <th class="px-6 py-3">Título</th>
-            <th class="px-6 py-3">Estado</th>
-            <th class="px-6 py-3">Idempotency Key</th>
-            <th class="px-6 py-3">Programado (UTC)</th>
-            <th class="px-6 py-3">Resultado / Enlace</th>
+            <th class="py-3 px-4">ID / Clave Idempotencia</th>
+            <th class="py-3 px-4">Plataforma</th>
+            <th class="py-3 px-4">Título del Draft</th>
+            <th class="py-3 px-4 text-center">Estado</th>
+            <th class="py-3 px-4 text-center">Intentos</th>
+            <th class="py-3 px-4">Programación</th>
+            <th class="py-3 px-4">Último Error / Detalle</th>
+            <th class="py-3 px-4 text-right">Acciones</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-700/40 text-xs">
-          {% for j in jobs %}
-          <tr class="hover:bg-slate-700/20 transition">
-            <td class="px-6 py-4 font-mono text-indigo-300">{{ j.id[:8] }}...</td>
-            <td class="px-6 py-4">
-              <span class="font-bold uppercase {% if j.post_draft.platform == 'youtube' %}text-red-400{% else %}text-pink-400{% endif %}">
-                {{ j.post_draft.platform if j.post_draft else '-' }}
-              </span>
-            </td>
-            <td class="px-6 py-4 max-w-xs truncate" title="{{ j.post_draft.title if j.post_draft else '' }}">
-              {{ j.post_draft.title if j.post_draft else '-' }}
-            </td>
-            <td class="px-6 py-4">
-              {% if j.status == 'PUBLISHED' %}
-              <span class="px-2 py-0.5 rounded-full font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                PUBLISHED
-              </span>
-              {% elif j.status == 'QUEUED' %}
-              <span class="px-2 py-0.5 rounded-full font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                QUEUED
-              </span>
-              {% elif j.status == 'REMOTE_PROCESSING' or j.status == 'UPLOADING' %}
-              <span class="px-2 py-0.5 rounded-full font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                {{ j.status }}
-              </span>
-              {% else %}
-              <span class="px-2 py-0.5 rounded-full font-medium bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                {{ j.status }}
-              </span>
-              {% endif %}
-            </td>
-            <td class="px-6 py-4 font-mono text-slate-400">{{ j.idempotency_key }}</td>
-            <td class="px-6 py-4 text-slate-400">
-              {{ j.scheduled_at_utc.strftime('%Y-%m-%d %H:%M') if j.scheduled_at_utc else 'Inmediato' }}
-            </td>
-            <td class="px-6 py-4">
-              {% if j.remote_url %}
-              <a href="{{ j.remote_url }}" target="_blank" class="text-indigo-400 hover:underline flex items-center">
-                Ver publicación <i class="fa-solid fa-arrow-up-right-from-square ml-1 text-[10px]"></i>
-              </a>
-              {% elif j.last_error %}
-              <span class="text-rose-400 truncate block max-w-xs" title="{{ j.last_error }}">{{ j.last_error }}</span>
-              {% else %}
-              <span class="text-slate-500">-</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
+        <tbody class="divide-y divide-slate-800/60">
+          {% if jobs %}
+            {% for job in jobs %}
+              <tr class="hover:bg-slate-800/30 transition">
+                <td class="py-3 px-4 font-mono text-[11px] text-slate-400">
+                  <div class="font-bold text-slate-300">{{ job.id[:8] }}</div>
+                  <div class="text-[10px] text-slate-500 truncate max-w-[120px]" title="{{ job.idempotency_key }}">
+                    {{ job.idempotency_key[:12] }}...
+                  </div>
+                </td>
+                <td class="py-3 px-4 font-medium uppercase text-slate-300 flex items-center space-x-1.5 pt-4">
+                  {% if job.post_draft and job.post_draft.platform == 'youtube' %}
+                    <i class="fa-brands fa-youtube text-red-500 text-base"></i>
+                  {% elif job.post_draft and job.post_draft.platform == 'tiktok' %}
+                    <i class="fa-brands fa-tiktok text-cyan-400 text-base"></i>
+                  {% elif job.post_draft and job.post_draft.platform == 'instagram' %}
+                    <i class="fa-brands fa-instagram text-pink-500 text-base"></i>
+                  {% else %}
+                    <i class="fa-solid fa-share text-indigo-400 text-base"></i>
+                  {% endif %}
+                  <span>{{ job.post_draft.platform if job.post_draft else 'N/A' }}</span>
+                </td>
+                <td class="py-3 px-4 font-medium text-white max-w-xs truncate">
+                  {{ job.post_draft.title if job.post_draft else 'Borrador sin título' }}
+                </td>
+                <td class="py-3 px-4 text-center">
+                  {% if job.status == 'PUBLISHED' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                      PUBLISHED
+                    </span>
+                  {% elif job.status == 'QUEUED' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                      QUEUED
+                    </span>
+                  {% elif job.status == 'SCHEDULED' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                      SCHEDULED
+                    </span>
+                  {% elif job.status == 'UPLOADING' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                      UPLOADING
+                    </span>
+                  {% elif job.status in ['PROCESSING', 'REMOTE_PROCESSING'] %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                      PROCESSING
+                    </span>
+                  {% elif job.status in ['FAILED', 'REMOTE_REJECTED'] %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                      FAILED
+                    </span>
+                  {% elif job.status in ['REQUIRES_ACTION', 'ACTION_REQUIRED'] %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                      ACTION REQ.
+                    </span>
+                  {% elif job.status == 'CANCELLED' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-500 border border-slate-700">
+                      CANCELLED
+                    </span>
+                  {% else %}
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-400">
+                      {{ job.status }}
+                    </span>
+                  {% endif %}
+                </td>
+                <td class="py-3 px-4 text-center font-mono">{{ job.attempt_count }}</td>
+                <td class="py-3 px-4 text-slate-400 text-[11px]">
+                  {% if job.scheduled_at_utc %}
+                    <span class="text-amber-400 font-mono">{{ job.scheduled_at_utc.strftime('%d/%m %H:%M UTC') }}</span>
+                  {% else %}
+                    <span class="text-slate-500">Inmediata</span>
+                  {% endif %}
+                </td>
+                <td class="py-3 px-4 text-slate-400 max-w-xs truncate text-[11px]" title="{{ job.last_error or '' }}">
+                  {{ job.last_error or '-' }}
+                </td>
+                <td class="py-3 px-4 text-right space-x-1.5">
+                  {% if job.status in ['FAILED', 'REQUIRES_ACTION', 'ACTION_REQUIRED', 'RETRYABLE_ERROR'] %}
+                    <button onclick="retryJob('{{ job.id }}')" class="px-2.5 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium" title="Reintentar">
+                      <i class="fa-solid fa-rotate-right mr-1"></i> Reintentar
+                    </button>
+                  {% endif %}
+
+                  {% if job.status in ['QUEUED', 'SCHEDULED', 'READY', 'DRAFT'] %}
+                    <button onclick="cancelJob('{{ job.id }}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 border border-slate-700 text-[11px]" title="Cancelar">
+                      <i class="fa-solid fa-ban"></i>
+                    </button>
+                  {% endif %}
+
+                  {% if job.remote_url %}
+                    <a href="{{ job.remote_url }}" target="_blank" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 text-[11px]" title="Ver video">
+                      <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                    </a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="8" class="py-8 text-center text-slate-500">
+                No hay trabajos en la cola.
+              </td>
+            </tr>
+          {% endif %}
         </tbody>
       </table>
     </div>
-    {% endif %}
   </div>
+
 </div>
+
+<script>
+async function retryJob(jobId) {
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/retry`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+    } else {
+      alert('Error: ' + data.error);
+    }
+  } catch (err) {
+    alert('Excepción: ' + err);
+  }
+}
+
+async function cancelJob(jobId) {
+  if (!confirm('¿Deseas cancelar este trabajo?')) return;
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+    } else {
+      alert('Error: ' + data.error);
+    }
+  } catch (err) {
+    alert('Excepción: ' + err);
+  }
+}
+</script>
 {% endblock %}

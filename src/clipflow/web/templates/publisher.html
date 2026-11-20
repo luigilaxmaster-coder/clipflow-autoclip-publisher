@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}Publisher Multired — AutoClip Publisher{% endblock %}
+{% block page_title %}Publisher & Distribución de Contenido{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-6">
+
+  <!-- Main Publisher Form -->
+  <form id="publisherForm" onsubmit="handlePublishSubmit(event)" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Column (8 cols): Content, Platforms & Metadata -->
+    <div class="lg:col-span-7 space-y-6">
+
+      <!-- Step 1: Media Selection -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center">
+            <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-[10px] mr-2">1</span>
+            Selección de Video
+          </h3>
+          <a href="/media-library" class="text-xs text-indigo-400 hover:text-indigo-300">Explorar biblioteca &rarr;</a>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Video en Media Library</label>
+          <select id="mediaSelect" onchange="onMediaSelected(this)" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+            <option value="">-- Selecciona un clip renderizado --</option>
+            {% for asset in assets %}
+              <option value="{{ asset.id }}" data-path="{{ asset.file_path }}" data-thumb="{{ asset.thumbnail_path or '' }}" data-title="{{ asset.title }}" data-duration="{{ asset.duration_sec or 0 }}">
+                {{ asset.title }} ({{ "%.1f"|format(asset.duration_sec or 0) }}s - {{ asset.width }}x{{ asset.height }})
+              </option>
+            {% endfor %}
+          </select>
+          <input type="hidden" id="selectedVideoPath" name="video_path">
+          <input type="hidden" id="selectedAssetId" name="asset_id">
+        </div>
+      </div>
+
+      <!-- Step 2: Target Platforms -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center mb-3">
+          <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-[10px] mr-2">2</span>
+          Redes de Destino
+        </h3>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <!-- YouTube -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="youtube" checked class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-youtube text-red-500 text-base"></i>
+              <span class="text-xs font-medium text-slate-200">YouTube</span>
+            </div>
+          </label>
+
+          <!-- TikTok -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="tiktok" checked class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-tiktok text-cyan-400 text-base"></i>
+              <span class="text-xs font-medium text-slate-200">TikTok</span>
+            </div>
+          </label>
+
+          <!-- Instagram -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="instagram" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-instagram text-pink-500 text-base"></i>
+              <span class="text-xs font-medium text-slate-200">Instagram</span>
+            </div>
+          </label>
+
+          <!-- Facebook -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="facebook" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-facebook text-blue-500 text-base"></i>
+              <span class="text-xs font-medium text-slate-200">Facebook</span>
+            </div>
+          </label>
+
+          <!-- Threads -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="threads" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-threads text-white text-base"></i>
+              <span class="text-xs font-medium text-slate-200">Threads</span>
+            </div>
+          </label>
+
+          <!-- X -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="x" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-x-twitter text-white text-base"></i>
+              <span class="text-xs font-medium text-slate-200">X</span>
+            </div>
+          </label>
+
+          <!-- LinkedIn -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="linkedin" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-linkedin text-blue-400 text-base"></i>
+              <span class="text-xs font-medium text-slate-200">LinkedIn</span>
+            </div>
+          </label>
+
+          <!-- Telegram -->
+          <label class="relative flex items-center p-3 rounded-lg border border-slate-700/80 bg-slate-950/60 cursor-pointer hover:border-slate-600 transition select-none">
+            <input type="checkbox" name="platforms" value="telegram" class="rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-indigo-500 mr-2.5">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-telegram text-sky-400 text-base"></i>
+              <span class="text-xs font-medium text-slate-200">Telegram</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Step 3: Platform Metadata Editor -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center">
+            <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-[10px] mr-2">3</span>
+            Metadatos & Optimización Viral
+          </h3>
+          <span class="text-[11px] text-indigo-400"><i class="fa-solid fa-sparkles mr-1"></i> Fórmula Viral AutoClip</span>
+        </div>
+
+        <!-- Title Input with Character Counter -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs font-medium text-slate-300">Título / Titular (YouTube máx. 100 car.)</label>
+            <span id="titleCounter" class="text-[11px] text-slate-500">0 / 100</span>
+          </div>
+          <input type="text" id="postTitle" name="title" required maxlength="100" oninput="updateCounter(this, 'titleCounter', 100)" placeholder="Gancho de alto impacto sin emojis para máxima retención..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <!-- Description Input -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Descripción / Copy</label>
+          <textarea id="postDescription" name="description" rows="3" placeholder="Contexto, llamada a la acción y enlaces clave..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"></textarea>
+        </div>
+
+        <!-- Hashtags -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Hashtags (separados por espacio)</label>
+          <input type="text" id="postHashtags" name="hashtags" value="#Shorts #Podcast #Viral" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <!-- Visibility / Privacy Options -->
+        <div class="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Privacidad por Defecto</label>
+            <select name="visibility" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
+              <option value="private" selected>Privado (Recomendado para verificación)</option>
+              <option value="unlisted">Oculto (Unlisted para revisión privada)</option>
+              <option value="public">Público (Autorizado desde Nov 2026 en YouTube)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Programación Diferida (Opcional)</label>
+            <input type="datetime-local" id="scheduleTime" name="scheduled_time" class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500">
+            <span class="text-[10px] text-slate-500 block mt-0.5">Zona: America/Santo_Domingo (UTC-4)</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column (5 cols): 9:16 Video Preview & Actions -->
+    <div class="lg:col-span-5 space-y-6">
+
+      <!-- Vertical 9:16 Preview Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center justify-between">
+          <span>Previsualización 9:16</span>
+          <span class="text-[10px] text-slate-500 font-normal">Formato Vertical</span>
+        </h3>
+
+        <!-- 9:16 Aspect Ratio Frame -->
+        <div class="relative w-full aspect-[9/16] max-w-[260px] mx-auto bg-black rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex items-center justify-center">
+          <video id="videoPreview" controls class="w-full h-full object-cover hidden"></video>
+          <img id="thumbnailPreview" class="w-full h-full object-cover hidden" alt="Miniatura">
+          <div id="previewPlaceholder" class="p-6 text-center text-slate-600">
+            <i class="fa-solid fa-mobile-screen text-4xl mb-2 block"></i>
+            <span class="text-xs">Selecciona un video para previsualizar</span>
+          </div>
+        </div>
+
+        <div id="mediaDetails" class="mt-4 p-3 bg-slate-950/80 rounded-lg border border-slate-800/80 text-[11px] text-slate-400 hidden">
+          <div class="flex justify-between py-0.5">
+            <span>Duración:</span>
+            <span id="detailDuration" class="text-slate-200 font-mono">-</span>
+          </div>
+          <div class="flex justify-between py-0.5">
+            <span>Ruta:</span>
+            <span id="detailPath" class="text-slate-200 truncate max-w-[150px]">-</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Submission Actions -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
+        <button type="submit" name="action" value="publish_now" class="w-full py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/30 transition flex items-center justify-center">
+          <i class="fa-solid fa-paper-plane mr-2"></i> Publicar / Encolar Inmediatamente
+        </button>
+
+        <button type="submit" name="action" value="schedule" class="w-full py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center justify-center">
+          <i class="fa-regular fa-clock mr-2 text-amber-400"></i> Programar para Fecha Futura
+        </button>
+
+        <button type="submit" name="action" value="draft" class="w-full py-2 px-4 rounded-lg bg-transparent hover:bg-slate-800/60 text-slate-400 text-xs font-medium transition flex items-center justify-center">
+          <i class="fa-regular fa-floppy-disk mr-1.5"></i> Guardar como Borrador
+        </button>
+      </div>
+
+    </div>
+
+  </form>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function onMediaSelected(select) {
+  const opt = select.options[select.selectedIndex];
+  if (!opt || !opt.value) {
+    document.getElementById('videoPreview').classList.add('hidden');
+    document.getElementById('thumbnailPreview').classList.add('hidden');
+    document.getElementById('previewPlaceholder').classList.remove('hidden');
+    document.getElementById('mediaDetails').classList.add('hidden');
+    return;
+  }
+
+  const assetId = opt.value;
+  const filePath = opt.getAttribute('data-path');
+  const thumbPath = opt.getAttribute('data-thumb');
+  const title = opt.getAttribute('data-title');
+  const duration = parseFloat(opt.getAttribute('data-duration') || '0');
+
+  document.getElementById('selectedAssetId').value = assetId;
+  document.getElementById('selectedVideoPath').value = filePath;
+
+  if (!document.getElementById('postTitle').value) {
+    document.getElementById('postTitle').value = title;
+    updateCounter(document.getElementById('postTitle'), 'titleCounter', 100);
+  }
+
+  // Previsualización de video o miniatura
+  const video = document.getElementById('videoPreview');
+  const thumb = document.getElementById('thumbnailPreview');
+  const placeholder = document.getElementById('previewPlaceholder');
+
+  placeholder.classList.add('hidden');
+  video.src = `/api/media/asset/${assetId}`;
+  video.classList.remove('hidden');
+
+  document.getElementById('mediaDetails').classList.remove('hidden');
+  document.getElementById('detailDuration').innerText = duration.toFixed(1) + ' seg';
+  document.getElementById('detailPath').innerText = filePath.split('\\').pop().split('/').pop();
+}
+
+function updateCounter(input, counterId, max) {
+  const count = input.value.length;
+  const counter = document.getElementById(counterId);
+  counter.innerText = `${count} / ${max}`;
+  if (count >= max) {
+    counter.classList.add('text-rose-400');
+  } else {
+    counter.classList.remove('text-rose-400');
+  }
+}
+
+async function handlePublishSubmit(e) {
+  e.preventDefault();
+  const form = document.getElementById('publisherForm');
+  const formData = new FormData(form);
+
+  const action = e.submitter ? e.submitter.value : 'publish_now';
+  const assetId = formData.get('asset_id');
+  const videoPath = formData.get('video_path');
+  const title = formData.get('title');
+  const description = formData.get('description');
+  const hashtags = formData.get('hashtags');
+  const visibility = formData.get('visibility');
+  const scheduledTime = formData.get('scheduled_time');
+
+  const platforms = [];
+  document.querySelectorAll('input[name="platforms"]:checked').forEach(cb => {
+    platforms.push(cb.value);
+  });
+
+  if (platforms.length === 0) {
+    alert('Por favor selecciona al menos una plataforma de destino.');
+    return;
+  }
+
+  if (!videoPath) {
+    alert('Por favor selecciona un video de la biblioteca.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/publisher/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        asset_id: assetId,
+        video_path: videoPath,
+        platforms: platforms,
+        title: title,
+        description: description,
+        hashtags: hashtags,
+        visibility: visibility,
+        scheduled_time: scheduledTime,
+        action: action
+      })
+    });
+
+    const data = await res.json();
+    if (data.ok) {
+      alert(`Publicación procesada correctamente (${data.jobs_created} trabajos generados).`);
+      window.location.href = '/queue';
+    } else {
+      alert('Error al despachar publicación: ' + (data.error || 'Desconocido'));
+    }
+  } catch (err) {
+    alert('Excepción al conectar con el servidor: ' + err);
+  }
+}
+</script>
+{% endblock %}

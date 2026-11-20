@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar — AutoClip Publisher{% endblock %}
+{% block page_title %}Calendario Editorial & Programación{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Calendar Controls Header -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center bg-slate-950 rounded-lg border border-slate-800 p-1">
+        <button class="px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 text-white shadow-sm">Semana</button>
+        <button class="px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white">Mes</button>
+      </div>
+      <div class="text-sm font-bold text-white flex items-center">
+        <i class="fa-regular fa-calendar text-indigo-400 mr-2"></i> Noviembre - Diciembre 2026
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-2 text-xs">
+      <span class="text-slate-400"><i class="fa-solid fa-clock text-amber-400 mr-1"></i> Zona de Negocio: America/Santo_Domingo (UTC-4)</span>
+      <a href="/publisher" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition">
+        + Programar Post
+      </a>
+    </div>
+  </div>
+
+  <!-- Weekly Calendar Grid -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+    <div class="grid grid-cols-7 border-b border-slate-800 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-3 bg-slate-950/60">
+      <div>Lun 17</div>
+      <div>Mar 18</div>
+      <div>Mié 19</div>
+      <div class="text-indigo-400 font-bold">Jue 20 (Hoy)</div>
+      <div>Vie 21</div>
+      <div>Sáb 22</div>
+      <div>Dom 23</div>
+    </div>
+
+    <!-- Calendar Slots (7 columns) -->
+    <div class="grid grid-cols-7 min-h-[450px] divide-x divide-slate-800/80 bg-slate-950/20 text-xs">
+
+      <!-- Days 1 to 3 -->
+      <div class="p-2 space-y-2"></div>
+      <div class="p-2 space-y-2"></div>
+      <div class="p-2 space-y-2"></div>
+
+      <!-- Today (Jueves 20) -->
+      <div class="p-2 space-y-2 bg-indigo-950/10">
+        {% for job in scheduled_jobs %}
+          <div class="bg-slate-900 border border-indigo-500/30 rounded-lg p-2.5 shadow-md hover:border-indigo-400 transition cursor-pointer">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-[10px] font-bold text-amber-400 flex items-center">
+                <i class="fa-solid fa-clock mr-1"></i>
+                {{ job.scheduled_at_utc.strftime('%H:%M') if job.scheduled_at_utc else 'Inmediato' }}
+              </span>
+              {% if job.post_draft and job.post_draft.platform == 'youtube' %}
+                <i class="fa-brands fa-youtube text-red-500"></i>
+              {% elif job.post_draft and job.post_draft.platform == 'tiktok' %}
+                <i class="fa-brands fa-tiktok text-cyan-400"></i>
+              {% else %}
+                <i class="fa-brands fa-instagram text-pink-500"></i>
+              {% endif %}
+            </div>
+            <div class="font-medium text-slate-200 line-clamp-2 text-[11px]">
+              {{ job.post_draft.title if job.post_draft else 'Clip programado' }}
+            </div>
+            <div class="mt-2 pt-1 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
+              <span>{{ job.status }}</span>
+              <button onclick="cancelJob('{{ job.id }}')" class="hover:text-rose-400" title="Cancelar">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </div>
+          </div>
+        {% endfor %}
+
+        <div class="border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-lg p-3 text-center text-slate-500 cursor-pointer transition">
+          <a href="/publisher" class="block text-[11px]">+ Añadir</a>
+        </div>
+      </div>
+
+      <!-- Days 5 to 7 -->
+      <div class="p-2 space-y-2">
+        <div class="border-2 border-dashed border-slate-800/60 rounded-lg p-3 text-center text-slate-600">
+          <span class="text-[11px]">10:00 AM (Mejor hora)</span>
+        </div>
+      </div>
+      <div class="p-2 space-y-2">
+        <div class="border-2 border-dashed border-slate-800/60 rounded-lg p-3 text-center text-slate-600">
+          <span class="text-[11px]">03:00 PM (Mejor hora)</span>
+        </div>
+      </div>
+      <div class="p-2 space-y-2">
+        <div class="border-2 border-dashed border-slate-800/60 rounded-lg p-3 text-center text-slate-600">
+          <span class="text-[11px]">08:00 PM (Mejor hora)</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function cancelJob(jobId) {
+  if (!confirm('¿Deseas cancelar esta publicación programada?')) return;
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+    } else {
+      alert('Error: ' + data.error);
+    }
+  } catch (err) {
+    alert('Excepción: ' + err);
+  }
+}
+</script>
+{% endblock %}
