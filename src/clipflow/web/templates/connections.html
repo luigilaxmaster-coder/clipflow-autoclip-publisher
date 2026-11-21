@@ -47,6 +47,89 @@
     </div>
   </section>
 
+  <!-- Independent Multi-Channel Profiles Section -->
+  <section class="card card-padded flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h2 class="card-title">Perfiles &amp; Canales Independientes ({{ provider_accounts|length }})</h2>
+        <p class="card-subtitle">Cada perfil tiene sus propias credenciales cifradas, nichos asignados y cupo diario independiente.</p>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button type="button" onclick="openConfigModal('youtube', 'Nuevo Perfil YouTube', ['client_id', 'client_secret'], true)" class="btn btn-primary btn-sm">+ Nuevo Perfil YouTube</button>
+        <button type="button" onclick="openConfigModal('tiktok', 'Nuevo Perfil TikTok', ['client_key', 'client_secret'], true)" class="btn btn-secondary btn-sm">+ Nuevo Perfil TikTok</button>
+      </div>
+    </div>
+
+    {% if provider_accounts %}
+      <div class="grid-3">
+        {% for acc in provider_accounts %}
+          <article class="card card-padded flex-col justify-between gap-3" style="background:var(--bg-input);">
+            <div class="flex-col gap-2">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  {{ platform_icon(acc.provider_id, 20) }}
+                  <div>
+                    <strong style="color:var(--text-primary);font-size:14px;">{{ acc.account_name }}</strong>
+                    <div class="text-xs text-muted">{{ acc.provider_name }}{% if acc.is_default %} &middot; Principal{% endif %}</div>
+                  </div>
+                </div>
+                {% if acc.status == 'CONNECTED' %}
+                  <span class="badge badge-success"><span class="status-dot healthy"></span> Conectado</span>
+                {% elif acc.status == 'NEEDS_APPROVAL' %}
+                  <span class="badge badge-warn">Pendiente OAuth</span>
+                {% else %}
+                  <span class="badge badge-danger">{{ acc.status }}</span>
+                {% endif %}
+              </div>
+
+              {% if acc.account_id %}
+                <div class="font-mono text-xs text-muted">ID: {{ acc.account_id }}</div>
+              {% endif %}
+
+              <div class="flex items-center justify-between text-xs" style="padding:6px 8px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border-subtle);">
+                <span class="text-muted">Cupo 24h de este perfil:</span>
+                <strong class="font-mono {% if acc.remaining_today == 0 %}text-danger{% endif %}" style="color:var(--text-primary);">
+                  {{ acc.used_today }} / {{ acc.daily_upload_limit }} ({{ acc.remaining_today }} disp.)
+                </strong>
+              </div>
+
+              <div class="flex flex-wrap gap-1">
+                {% if acc.niche_list %}
+                  {% for tag in acc.niche_list %}
+                    <span class="badge badge-indigo" style="font-size:10.5px;">#{{ tag }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-xs text-muted">Sin nichos configurados (usa Editar Nicho)</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="flex items-center flex-wrap gap-2" style="padding-top:10px;border-top:1px solid var(--border-subtle);">
+              {% if acc.provider_id in ['youtube', 'tiktok'] and acc.has_oauth_client and acc.status != 'CONNECTED' %}
+                <a href="/api/connections/{{ acc.provider_id }}/oauth/start?connection_id={{ acc.connection_id }}" class="btn btn-primary btn-sm">Conectar OAuth</a>
+              {% endif %}
+              <button type="button"
+                      onclick='openProfileModal({{ acc.connection_id|tojson }}, {{ acc.account_name|tojson }}, {{ acc.niche_tags|tojson }}, {{ acc.daily_upload_limit }}, {{ acc.is_default|tojson }})'
+                      class="btn btn-secondary btn-sm">Nicho y Cuota</button>
+              <button type="button" onclick="testProfileConnection('{{ acc.connection_id }}')" class="btn btn-secondary btn-sm">Diagnosticar</button>
+              {% if acc.provider_id in ['youtube', 'tiktok'] and acc.has_refresh_token %}
+                <button type="button" onclick="refreshOAuthToken('{{ acc.provider_id }}', '{{ acc.connection_id }}')" class="btn btn-secondary btn-sm">Renovar</button>
+              {% endif %}
+              <form action="/api/connections/profile/{{ acc.connection_id }}/disconnect" method="post" style="margin:0;" onsubmit="return confirm('¿Desconectar perfil {{ acc.account_name }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-danger btn-sm">Salir</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state" style="padding:18px;">
+        <p class="text-sm text-muted">Aún no hay perfiles guardados. Usa "+ Nuevo Perfil" o el catálogo inferior para crear tarjetas independientes.</p>
+      </div>
+    {% endif %}
+  </section>
+
   <!-- Filter & Search Controls -->
   <section class="flex items-center justify-between flex-wrap gap-3">
     <div class="tabs" role="tablist">
@@ -141,10 +224,16 @@
           {% endif %}
 
           <button type="button"
-                  onclick='openConfigModal({{ conn.id|tojson }}, {{ conn.name|tojson }}, {{ conn.required_fields|tojson }})'
+                  onclick='openConfigModal({{ conn.id|tojson }}, {{ conn.name|tojson }}, {{ conn.required_fields|tojson }}, false)'
                   class="btn {% if conn.status == 'CONNECTED' %}btn-secondary{% else %}btn-primary{% endif %} btn-sm"
                   style="flex:1;">
-            {{ 'Configurar' if conn.status == 'CONNECTED' else 'Preparar Conexión' }}
+            {{ 'Actualizar / Nuevo Perfil' if conn.status == 'CONNECTED' else 'Preparar Conexión' }}
+          </button>
+          <button type="button"
+                  onclick='openConfigModal({{ conn.id|tojson }}, {{ conn.name|tojson }}, {{ conn.required_fields|tojson }}, true)'
+                  class="btn btn-secondary btn-sm"
+                  title="Crear otra tarjeta independiente para esta red">
+            + Perfil
           </button>
 
           {% if conn.connection_id %}
@@ -175,9 +264,20 @@
       <form id="credentialsForm" onsubmit="submitCredentials(event)">
         <div class="modal-body">
           <input type="hidden" id="modalProviderId" name="provider_id">
+          <input type="hidden" id="modalCreateNew" name="create_new" value="0">
           <div class="field">
-            <label for="modalAccountName" class="field-label">Nombre visible de la cuenta</label>
-            <input type="text" id="modalAccountName" name="account_name" required placeholder="Ej. Canal Principal" class="input">
+            <label for="modalAccountName" class="field-label">Nombre visible del perfil / canal</label>
+            <input type="text" id="modalAccountName" name="account_name" required placeholder="Ej. Canal Gaming GTA6" class="input">
+          </div>
+          <div class="grid-2" style="gap:10px;">
+            <div class="field">
+              <label for="modalNicheTags" class="field-label">Nichos / Palabras clave</label>
+              <input type="text" id="modalNicheTags" name="niche_tags" placeholder="gta6, gaming, directos" class="input">
+            </div>
+            <div class="field">
+              <label for="modalDailyLimit" class="field-label">Límite diario permitido</label>
+              <input type="number" id="modalDailyLimit" name="daily_upload_limit" min="1" max="500" value="6" class="input">
+            </div>
           </div>
           <div id="dynamicFieldsContainer" class="flex-col gap-3"></div>
           <label class="flex items-center gap-2 text-sm">
@@ -188,6 +288,45 @@
         <div class="modal-footer">
           <button type="button" onclick="closeConfigModal()" class="btn btn-secondary btn-sm">Cancelar</button>
           <button type="submit" class="btn btn-primary btn-sm">Guardar Cifrado</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Profile Niche & Quota Edit Modal -->
+  <div id="profileEditModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <h3 class="card-title">Editar Nicho y Cuota del Perfil</h3>
+          <p class="card-subtitle">Configura qué temática va a este canal y cuántas subidas diarias permite su API</p>
+        </div>
+        <button type="button" onclick="document.getElementById('profileEditModal').classList.remove('open')" class="btn btn-ghost btn-icon">&times;</button>
+      </div>
+      <form onsubmit="submitProfileUpdate(event)">
+        <div class="modal-body">
+          <input type="hidden" id="editConnId">
+          <div class="field">
+            <label for="editAccountName" class="field-label">Nombre / Alias del canal</label>
+            <input type="text" id="editAccountName" required class="input">
+          </div>
+          <div class="field">
+            <label for="editNicheTags" class="field-label">Nichos / Keywords (separadas por coma)</label>
+            <input type="text" id="editNicheTags" placeholder="gta6, gaming, vegetta777, directos" class="input">
+          </div>
+          <div class="field">
+            <label for="editDailyLimit" class="field-label">Límite diario de subidas permitidas en esta cuenta</label>
+            <input type="number" id="editDailyLimit" min="1" max="500" value="6" class="input">
+            <span class="field-hint">Por defecto 6 en YouTube estándar (10,000 uds). Súbelo solo cuando Google apruebe más cuota a esta cuenta.</span>
+          </div>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="editIsDefault">
+            <span>Establecer como perfil principal por defecto de esta red</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="document.getElementById('profileEditModal').classList.remove('open')" class="btn btn-secondary btn-sm">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Guardar Perfil</button>
         </div>
       </form>
     </div>
@@ -238,9 +377,10 @@
     applyProviderFilters();
   }
 
-  function openConfigModal(providerId, providerName, fields) {
+  function openConfigModal(providerId, providerName, fields, createNew = false) {
     document.getElementById('modalProviderId').value = providerId;
-    document.getElementById('modalTitle').textContent = 'Configurar ' + providerName;
+    document.getElementById('modalCreateNew').value = createNew ? '1' : '0';
+    document.getElementById('modalTitle').textContent = (createNew ? 'Nuevo Perfil — ' : 'Configurar ') + providerName;
     const container = document.getElementById('dynamicFieldsContainer');
     container.innerHTML = '';
 
@@ -273,16 +413,28 @@
     const formData = new FormData(e.target);
     const providerId = formData.get('provider_id');
     const accountName = formData.get('account_name');
+    const createNew = formData.get('create_new') === '1';
+    const nicheTags = formData.get('niche_tags') || '';
+    const dailyLimit = parseInt(formData.get('daily_upload_limit') || '6', 10);
     const testNow = document.getElementById('testNowCheckbox').checked;
     const creds = {};
     for (const [k, v] of formData.entries()) {
-      if (k !== 'provider_id' && k !== 'account_name') creds[k] = v;
+      if (!['provider_id', 'account_name', 'create_new', 'niche_tags', 'daily_upload_limit'].includes(k)) {
+        creds[k] = v;
+      }
     }
     try {
       const res = await window.clipflowFetch(`/api/connections/${providerId}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_name: accountName, credentials: creds, test_now: testNow })
+        body: JSON.stringify({
+          account_name: accountName,
+          credentials: creds,
+          test_now: testNow,
+          create_new: createNew,
+          niche_tags: nicheTags,
+          daily_upload_limit: dailyLimit,
+        })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -293,6 +445,57 @@
       setTimeout(() => window.location.reload(), 900);
     } catch (err) {
       window.showToast('Error de red: ' + err, 'error');
+    }
+  }
+
+  function openProfileModal(connId, accountName, nicheTags, dailyLimit, isDefault) {
+    document.getElementById('editConnId').value = connId;
+    document.getElementById('editAccountName').value = accountName || '';
+    document.getElementById('editNicheTags').value = nicheTags || '';
+    document.getElementById('editDailyLimit').value = dailyLimit || 6;
+    document.getElementById('editIsDefault').checked = !!isDefault;
+    document.getElementById('profileEditModal').classList.add('open');
+  }
+
+  async function submitProfileUpdate(e) {
+    e.preventDefault();
+    const connId = document.getElementById('editConnId').value;
+    const res = await window.clipflowFetch(`/api/connections/profile/${connId}/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account_name: document.getElementById('editAccountName').value.trim(),
+        niche_tags: document.getElementById('editNicheTags').value.trim(),
+        daily_upload_limit: parseInt(document.getElementById('editDailyLimit').value || '6', 10),
+        is_default: document.getElementById('editIsDefault').checked,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      window.showToast(data.detail || 'Error al actualizar perfil', 'error');
+      return;
+    }
+    window.showToast('Perfil actualizado.', 'success');
+    setTimeout(() => window.location.reload(), 700);
+  }
+
+  async function testProfileConnection(connId) {
+    const modal = document.getElementById('diagModal');
+    const content = document.getElementById('diagContent');
+    modal.classList.add('open');
+    content.innerHTML = '<p class="text-muted">Consultando API oficial del perfil...</p>';
+    try {
+      const res = await window.clipflowFetch(`/api/connections/profile/${connId}/test`, { method: 'POST' });
+      const data = await res.json();
+      content.innerHTML = `
+        <div class="banner ${data.ok ? 'banner-success' : 'banner-danger'}">
+          <div>
+            <strong>${data.ok ? 'Conexión Verificada' : 'Diagnóstico Fallido'} (${data.status || ''})</strong>
+            <div style="margin-top:4px;">${data.message || ''}</div>
+          </div>
+        </div>`;
+    } catch (err) {
+      content.innerHTML = `<div class="banner banner-danger">Error de comunicación: ${err}</div>`;
     }
   }
 
@@ -316,9 +519,10 @@
     }
   }
 
-  async function refreshOAuthToken(providerId) {
+  async function refreshOAuthToken(providerId, connId = '') {
+    const q = connId ? `?connection_id=${encodeURIComponent(connId)}` : '';
     try {
-      const res = await window.clipflowFetch(`/api/connections/${providerId}/oauth/refresh`, { method: 'POST' });
+      const res = await window.clipflowFetch(`/api/connections/${providerId}/oauth/refresh${q}`, { method: 'POST' });
       const data = await res.json();
       window.showToast(data.message || 'Proceso completado', data.ok ? 'success' : 'error');
       setTimeout(() => window.location.reload(), 1000);

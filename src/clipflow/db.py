@@ -35,18 +35,31 @@ def get_session_factory(database_url: Optional[str] = None) -> sessionmaker[Sess
 def _ensure_schema_columns(engine) -> None:
     """Asegura que bases SQLite existentes incorporen nuevas columnas sin pérdida de datos."""
     insp = inspect(engine)
-    if "publish_jobs" in insp.get_table_names():
-        existing_cols = {col["name"] for col in insp.get_columns("publish_jobs")}
-        migrations = [
+    table_names = set(insp.get_table_names())
+    table_migrations = {
+        "publish_jobs": [
             ("remote_channel_id", "VARCHAR(128)"),
             ("remote_privacy_status", "VARCHAR(32)"),
             ("upload_session_uri", "TEXT"),
             ("upload_bytes_sent", "INTEGER DEFAULT 0"),
-        ]
-        with engine.begin() as conn:
+        ],
+        "account_connections": [
+            ("niche_tags", "VARCHAR(512)"),
+            ("daily_upload_limit", "INTEGER DEFAULT 6"),
+            ("is_default", "BOOLEAN DEFAULT 0"),
+        ],
+        "oauth_states": [
+            ("connection_id", "VARCHAR(36)"),
+        ],
+    }
+    with engine.begin() as conn:
+        for tbl, migrations in table_migrations.items():
+            if tbl not in table_names:
+                continue
+            existing_cols = {col["name"] for col in insp.get_columns(tbl)}
             for col_name, col_type in migrations:
                 if col_name not in existing_cols:
-                    conn.execute(text(f"ALTER TABLE publish_jobs ADD COLUMN {col_name} {col_type}"))
+                    conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_type}"))
 
 
 def init_db(database_url: Optional[str] = None) -> None:

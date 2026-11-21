@@ -86,6 +86,32 @@
         </div>
 
         <div id="disconnectedWarning" class="banner banner-warn hidden" style="padding:10px 14px;font-size:12.5px;"></div>
+
+        <!-- Per-Platform Profile / Channel Selector -->
+        <div class="flex-col gap-2" style="padding-top:10px;border-top:1px solid var(--border-subtle);">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <span class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;">Perfil / Canal Independiente por Red</span>
+            <button type="button" onclick="autoRouteByNiche()" class="btn btn-secondary btn-sm">Detectar Nicho Automático</button>
+          </div>
+          <div class="grid-2" style="gap:10px;">
+            {% for pid, pname in [('youtube','YouTube'), ('tiktok','TikTok'), ('instagram','Instagram'), ('facebook','Facebook'), ('threads','Threads'), ('x','X (Twitter)')] %}
+              {% set p_accounts = accounts_by_platform.get(pid, []) %}
+              {% if p_accounts %}
+                <div class="field">
+                  <label for="accountSelect_{{ pid }}" class="field-label">{{ pname }} — Canal / Perfil</label>
+                  <select id="accountSelect_{{ pid }}" class="select account-selector" data-platform="{{ pid }}">
+                    {% for acc in p_accounts %}
+                      <option value="{{ acc.connection_id }}" {% if acc.is_default %}selected{% endif %}>
+                        {{ acc.account_name }} ({{ acc.used_today }}/{{ acc.daily_upload_limit }} hoy){% if acc.niche_tags %} · [{{ acc.niche_tags }}]{% endif %}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <div id="nicheMatchNote" class="text-xs text-muted"></div>
+        </div>
       </div>
 
       <!-- Platform Metadata Editor -->
@@ -287,6 +313,41 @@
     document.getElementById('confirmPublishModal').classList.remove('open');
   }
 
+  function getAccountSelections() {
+    const map = {};
+    document.querySelectorAll('.account-selector').forEach(sel => {
+      if (sel.value) map[sel.dataset.platform] = sel.value;
+    });
+    return map;
+  }
+
+  async function autoRouteByNiche() {
+    const title = document.getElementById('postTitle').value.trim();
+    const desc = document.getElementById('postDescription').value.trim();
+    const tags = document.getElementById('postHashtags').value.trim();
+    const platforms = getSelectedPlatforms();
+    const res = await window.clipflowFetch('/api/niche/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: `${title} ${desc} ${tags}`, platforms })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      window.showToast(data.detail || 'No se pudo analizar el nicho', 'error');
+      return;
+    }
+    const notes = [];
+    for (const [plat, info] of Object.entries(data.routes || {})) {
+      if (info.found && info.connection_id) {
+        const sel = document.getElementById(`accountSelect_${plat}`);
+        if (sel) sel.value = info.connection_id;
+        notes.push(`${plat.toUpperCase()}: ${info.reason} (${info.remaining_today}/${info.daily_upload_limit} disp.)`);
+      }
+    }
+    document.getElementById('nicheMatchNote').textContent = notes.join(' | ');
+    window.showToast('Perfiles asignados según nicho detectado.', 'success');
+  }
+
   async function executeDispatch() {
     const btn = document.getElementById('confirmSendBtn');
     btn.disabled = true;
@@ -303,7 +364,8 @@
           hashtags: document.getElementById('postHashtags').value.trim(),
           visibility: document.getElementById('postVisibility').value,
           scheduled_time: document.getElementById('scheduleTime').value || null,
-          action: pendingAction
+          action: pendingAction,
+          account_selections: getAccountSelections()
         })
       });
       const data = await res.json();

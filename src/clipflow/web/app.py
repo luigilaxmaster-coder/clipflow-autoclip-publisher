@@ -33,6 +33,7 @@ from clipflow.ingestion import IngestionService
 from clipflow.media_library import MediaLibraryService
 from clipflow.media_qa import MediaQA
 from clipflow.metadata import MetadataGenerator
+from clipflow.niche_router import extract_link_context, route_text_to_profiles
 from clipflow.models import (
     AccountConnection,
     AuditEvent,
@@ -459,7 +460,8 @@ def connections_view(
 ):
     conn_service = ConnectionService(db)
     connections = conn_service.list_connections()
-    connected_count = sum(1 for c in connections if c["status"] == ConnectionStatus.CONNECTED)
+    provider_accounts = conn_service.list_provider_accounts()
+    connected_count = sum(1 for c in provider_accounts if c["status"] == ConnectionStatus.CONNECTED)
     youtube_redirect_uri = (os.getenv("YOUTUBE_REDIRECT_URI") or "").strip() or str(
         request.url_for("youtube_oauth_callback")
     )
@@ -471,6 +473,7 @@ def connections_view(
         "connections.html",
         {
             "connections": connections,
+            "provider_accounts": provider_accounts,
             "connected_count": connected_count,
             "oauth_status": oauth,
             "oauth_provider": provider,
@@ -490,6 +493,9 @@ def publisher_view(request: Request, asset_id: Optional[str] = None, db: Session
 
     conn_service = ConnectionService(db)
     connections = {c["id"]: c for c in conn_service.list_connections()}
+    accounts_by_platform: Dict[str, List[Dict[str, Any]]] = {}
+    for acc in conn_service.list_provider_accounts():
+        accounts_by_platform.setdefault(acc["provider_id"], []).append(acc)
 
     return _render(
         request,
@@ -498,6 +504,7 @@ def publisher_view(request: Request, asset_id: Optional[str] = None, db: Session
             "assets": assets,
             "selected_asset": selected_asset,
             "connections_map": connections,
+            "accounts_by_platform": accounts_by_platform,
         },
     )
 
@@ -655,6 +662,24 @@ class SaveCredentialsRequest(BaseModel):
     account_name: str
     credentials: Dict[str, Any]
     test_now: bool = True
+    connection_id: Optional[str] = None
+    create_new: bool = False
+    niche_tags: Optional[str] = None
+    daily_upload_limit: Optional[int] = None
+    is_default: Optional[bool] = None
+
+
+class UpdateProfileRequest(BaseModel):
+    account_name: Optional[str] = None
+    niche_tags: Optional[str] = None
+    daily_upload_limit: Optional[int] = None
+    is_default: Optional[bool] = None
+
+
+class NicheResolveRequest(BaseModel):
+    url: Optional[str] = None
+    text: Optional[str] = None
+    platforms: Optional[List[str]] = None
 
 
 @app.post("/api/connections/{provider_id}/save")
@@ -667,6 +692,11 @@ def api_save_connection(provider_id: str, payload: SaveCredentialsRequest, db: S
             credentials=payload.credentials,
             test_now=payload.test_now,
             allow_mock=False,  # Prohibido mock vía API
+            connection_id=payload.connection_id,
+            create_new=payload.create_new,
+            niche_tags=payload.niche_tags,
+            daily_upload_limit=payload.daily_upload_limit,
+            is_default=payload.is_default,
         )
         return res
     except Exception as e:
@@ -674,24 +704,78 @@ def api_save_connection(provider_id: str, payload: SaveCredentialsRequest, db: S
         raise HTTPException(status_code=400, detail=redact_secrets(str(e)))
 
 
-@app.post("/api/connections/{provider_id}/test")
-def api_test_connection(provider_id: str, db: Session = Depends(get_db)):
+@app.post("/api/connections/profile/{connection_id}/update")
+def api_update_connection_profile(connection_id: str, payload: UpdateProfileRequest, db: Session = Depends(get_db)):
     conn_service = ConnectionService(db)
-    return conn_service.test_connection_by_id(provider_id)
+    try:
+        profile = conn_service.update_account_profile(
+            connection_id=connection_id,
+            account_name=payload.account_name,
+            niche_tags=payload.niche_tags,
+            daily_upload_limit=payload.daily_upload_limit,
+            is_default=payload.is_default,
+        )
+        return {"ok": True, "profile": profile}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=redact_secrets(str(e)))
+
+
+@app.post("/api/connections/profile/{connection_id}/test")
+def api_test_profile_connection(connection_id: str, db: Session = Depends(get_db)):
+    conn_service = ConnectionService(db)
+    conn = conn_service.get_connection_by_id(connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    return conn_service.test_connection_by_id(conn.provider_id, connection_id=conn.id)
+
+
+@app.post("/api/connections/profile/{connection_id}/disconnect")
+def api_disconnect_profile_connection(connection_id: str, db: Session = Depends(get_db)):
+    conn_service = ConnectionService(db)
+    conn_service.disconnect_by_id(connection_id)
+    return RedirectResponse(url="/connections", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/api/niche/resolve")
+def api_niche_resolve(payload: NicheResolveRequest, db: Session = Depends(get_db)):
+    """Analiza un enlace o texto de video e identifica el perfil independiente ideal por nicho."""
+    meta: Dict[str, Any] = {}
+    ctx_parts = [payload.text or ""]
+    if payload.url and payload.url.strip():
+        try:
+            meta = extract_link_context(payload.url.strip())
+            ctx_parts.append(meta.get("context_text", ""))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    routes = route_text_to_profiles(db, " ".join(ctx_parts).strip(), platforms=payload.platforms)
+    return {"ok": True, "metadata": meta, "routes": routes}
+
+
+@app.post("/api/connections/{provider_id}/test")
+def api_test_connection(provider_id: str, connection_id: Optional[str] = None, db: Session = Depends(get_db)):
+    conn_service = ConnectionService(db)
+    return conn_service.test_connection_by_id(provider_id, connection_id=connection_id)
 
 
 @app.post("/api/connections/{provider_id}/disconnect")
-def api_disconnect_connection(provider_id: str, db: Session = Depends(get_db)):
+def api_disconnect_connection(provider_id: str, connection_id: Optional[str] = None, db: Session = Depends(get_db)):
     conn_service = ConnectionService(db)
-    conn_service.disconnect(provider_id)
+    if connection_id:
+        conn_service.disconnect_by_id(connection_id)
+    else:
+        conn_service.disconnect(provider_id)
     return RedirectResponse(url="/connections", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/api/connections/youtube/oauth/start")
-def api_youtube_oauth_start(request: Request, db: Session = Depends(get_db)):
-    """Inicia el flujo interactivo de Google OAuth 2.0 con estado criptográfico de un solo uso."""
+def api_youtube_oauth_start(
+    request: Request,
+    connection_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Inicia el flujo interactivo de Google OAuth 2.0 ligado opcionalmente a un perfil independiente."""
     conn_service = ConnectionService(db)
-    creds = conn_service.get_decrypted_credentials("youtube")
+    creds = conn_service.get_decrypted_credentials("youtube", account_ref=connection_id)
     client_id = (creds.get("client_id") or os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
     client_secret = (creds.get("client_secret") or os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
 
@@ -704,7 +788,7 @@ def api_youtube_oauth_start(request: Request, db: Session = Depends(get_db)):
     redirect_uri = (os.getenv("YOUTUBE_REDIRECT_URI") or "").strip() or str(
         request.url_for("youtube_oauth_callback")
     )
-    state_val = conn_service.create_oauth_state("youtube", redirect_uri)
+    state_val = conn_service.create_oauth_state("youtube", redirect_uri, connection_id=connection_id)
 
     pub = NativeYouTubePublisher(
         client_id=client_id,
@@ -747,7 +831,8 @@ def api_youtube_oauth_callback(
     if not state_entry:
         raise HTTPException(status_code=400, detail="Estado OAuth inválido, expirado o ya utilizado.")
 
-    creds = conn_service.get_decrypted_credentials("youtube")
+    target_conn_id = state_entry.connection_id
+    creds = conn_service.get_decrypted_credentials("youtube", account_ref=target_conn_id)
     client_id = (creds.get("client_id") or os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
     client_secret = (creds.get("client_secret") or os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
 
@@ -776,11 +861,12 @@ def api_youtube_oauth_callback(
         verify_now=True,
         client_id=client_id,
         client_secret=client_secret,
+        connection_id=target_conn_id,
     )
     record_audit(
         db,
         "AccountConnection",
-        "youtube",
+        result.get("connection_id") or "youtube",
         "owner",
         "oauth_connected" if result["ok"] else "oauth_verify_failed",
         None,
@@ -797,16 +883,20 @@ def api_youtube_oauth_callback(
 
 
 @app.post("/api/connections/youtube/oauth/refresh")
-def api_youtube_oauth_refresh(db: Session = Depends(get_db)):
+def api_youtube_oauth_refresh(connection_id: Optional[str] = None, db: Session = Depends(get_db)):
     conn_service = ConnectionService(db)
-    return conn_service.refresh_connection_tokens("youtube")
+    return conn_service.refresh_connection_tokens("youtube", connection_id=connection_id)
 
 
 @app.get("/api/connections/tiktok/oauth/start")
-def api_tiktok_oauth_start(request: Request, db: Session = Depends(get_db)):
-    """Inicia el flujo OAuth 2.0 interactivo de TikTok con estado criptográfico de un solo uso."""
+def api_tiktok_oauth_start(
+    request: Request,
+    connection_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Inicia el flujo OAuth 2.0 interactivo de TikTok ligado opcionalmente a un perfil independiente."""
     conn_service = ConnectionService(db)
-    creds = conn_service.get_decrypted_credentials("tiktok")
+    creds = conn_service.get_decrypted_credentials("tiktok", account_ref=connection_id)
     client_key = (creds.get("client_key") or os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
     client_secret = (creds.get("client_secret") or os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
 
@@ -819,7 +909,7 @@ def api_tiktok_oauth_start(request: Request, db: Session = Depends(get_db)):
     redirect_uri = (os.getenv("TIKTOK_REDIRECT_URI") or "").strip() or str(
         request.url_for("tiktok_oauth_callback")
     )
-    state_val = conn_service.create_oauth_state("tiktok", redirect_uri)
+    state_val = conn_service.create_oauth_state("tiktok", redirect_uri, connection_id=connection_id)
 
     pub = NativeTikTokPublisher(
         client_key=client_key,
@@ -859,7 +949,8 @@ def api_tiktok_oauth_callback(
     if not state_entry:
         raise HTTPException(status_code=400, detail="Estado OAuth de TikTok inválido, expirado o ya utilizado.")
 
-    creds = conn_service.get_decrypted_credentials("tiktok")
+    target_conn_id = state_entry.connection_id
+    creds = conn_service.get_decrypted_credentials("tiktok", account_ref=target_conn_id)
     client_key = (creds.get("client_key") or os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
     client_secret = (creds.get("client_secret") or os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
 
@@ -892,11 +983,12 @@ def api_tiktok_oauth_callback(
             "client_secret": client_secret,
             "open_id": token_data.get("open_id"),
         },
+        connection_id=target_conn_id,
     )
     record_audit(
         db,
         "AccountConnection",
-        "tiktok",
+        result.get("connection_id") or "tiktok",
         "owner",
         "oauth_connected" if result["ok"] else "oauth_verify_failed",
         None,
@@ -913,9 +1005,9 @@ def api_tiktok_oauth_callback(
 
 
 @app.post("/api/connections/tiktok/oauth/refresh")
-def api_tiktok_oauth_refresh(db: Session = Depends(get_db)):
+def api_tiktok_oauth_refresh(connection_id: Optional[str] = None, db: Session = Depends(get_db)):
     conn_service = ConnectionService(db)
-    return conn_service.refresh_connection_tokens("tiktok")
+    return conn_service.refresh_connection_tokens("tiktok", connection_id=connection_id)
 
 
 # -------------------------------------------------------------
@@ -955,9 +1047,18 @@ class IngestUrlRequest(BaseModel):
     platforms: List[str] = ["youtube_shorts"]
     portrait_style: str = "podcast"
     template: str = "classic"
+    auto_route_niche: bool = True
+    account_selections: Optional[Dict[str, str]] = None
 
 
-def _run_background_autoclip_project(project_id: str, source_url: str, platforms: List[str], portrait_style: str, template: str) -> None:
+def _run_background_autoclip_project(
+    project_id: str,
+    source_url: str,
+    platforms: List[str],
+    portrait_style: str,
+    template: str,
+    account_selections: Optional[Dict[str, str]] = None,
+) -> None:
     try:
         adapter = AutoClipAdapter()
         qa = MediaQA()
@@ -975,6 +1076,7 @@ def _run_background_autoclip_project(project_id: str, source_url: str, platforms
                 return
             proj.autoclip_project_id = res.get("project_id")
             proj.upstream_version = res.get("upstream_version")
+            conn_svc = ConnectionService(bg_db)
             for idx, var in enumerate(variants, start=1):
                 vid_path = var.get("video_path")
                 if not vid_path or not Path(vid_path).is_file():
@@ -996,12 +1098,20 @@ def _run_background_autoclip_project(project_id: str, source_url: str, platforms
                 )
                 bg_db.add(render)
                 bg_db.flush()
+                title_txt = var.get("title") or f"Clip {idx}"
+                desc_txt = var.get("description")
                 for d in meta_gen.generate_drafts(
                     render_id=render.id,
-                    base_title=var.get("title") or f"Clip {idx}",
-                    base_description=var.get("description"),
+                    base_title=title_txt,
+                    base_description=desc_txt,
                     tags=var.get("tags") or [],
                 ):
+                    sel = (account_selections or {}).get(d.platform)
+                    if not sel:
+                        match = conn_svc.resolve_account_by_niche(d.platform, f"{title_txt} {desc_txt or ''}")
+                        if match and match.get("connection"):
+                            sel = match["connection"]["connection_id"]
+                    d.account_id = sel
                     bg_db.add(d)
             proj.workflow_status = "READY_TO_REVIEW"
             bg_db.commit()
@@ -1020,28 +1130,54 @@ def _run_background_autoclip_project(project_id: str, source_url: str, platforms
 
 @app.post("/api/projects/ingest-url")
 def api_ingest_project_url(payload: IngestUrlRequest, db: Session = Depends(get_db)):
-    """Valida una URL HTTPS de YouTube/Bilibili e inicia generación en segundo plano con AutoClip."""
+    """Valida una URL HTTPS, detecta nicho -> perfil destino e inicia AutoClip en segundo plano."""
     ingestion = IngestionService()
     try:
         src = ingestion.process_source(source_input=payload.source_url, rights_confirmed=True)
     except Exception as e:
         raise HTTPException(status_code=400, detail=redact_secrets(str(e)))
 
+    resolved_routes: Dict[str, Any] = {}
+    selections = dict(payload.account_selections or {})
+    if payload.auto_route_niche:
+        try:
+            meta = extract_link_context(src.canonical_source)
+            target_plats = ["youtube" if "youtube" in p else p for p in payload.platforms]
+            resolved_routes = route_text_to_profiles(db, meta.get("context_text", ""), platforms=target_plats)
+            for plat, info in resolved_routes.items():
+                if info.get("found") and plat not in selections:
+                    selections[plat] = info["connection_id"]
+        except Exception:
+            pass
+
     db.add(src)
     db.flush()
     proj = Project(source_id=src.id, workflow_status="ANALYZING")
     db.add(proj)
     db.flush()
-    record_audit(db, "Project", proj.id, "owner", "web_ingest_url", None, {"source": src.canonical_source})
+    record_audit(
+        db,
+        "Project",
+        proj.id,
+        "owner",
+        "web_ingest_url",
+        None,
+        {"source": src.canonical_source, "routes": selections},
+    )
     db.commit()
 
     t = threading.Thread(
         target=_run_background_autoclip_project,
-        args=(proj.id, src.canonical_source, payload.platforms, payload.portrait_style, payload.template),
+        args=(proj.id, src.canonical_source, payload.platforms, payload.portrait_style, payload.template, selections),
         daemon=True,
     )
     t.start()
-    return {"ok": True, "project_id": proj.id, "workflow_status": proj.workflow_status}
+    return {
+        "ok": True,
+        "project_id": proj.id,
+        "workflow_status": proj.workflow_status,
+        "niche_routes": resolved_routes,
+    }
 
 
 @app.get("/api/media/asset/{asset_id}")
@@ -1091,6 +1227,8 @@ class DispatchRequest(BaseModel):
     scheduled_time: Optional[str] = None
     action: str = "publish_now"
     platform_overrides: Optional[Dict[str, Dict[str, Any]]] = None
+    account_selections: Optional[Dict[str, str]] = None
+    auto_route_niche: bool = False
 
 
 @app.post("/api/publisher/dispatch")
@@ -1152,9 +1290,16 @@ def api_publisher_dispatch(payload: DispatchRequest, db: Session = Depends(get_d
         if plat_key == "tiktok" and vis == "private":
             vis = "SELF_ONLY"
 
+        selected_account = (payload.account_selections or {}).get(plat_key) or override.get("account_id")
+        if not selected_account and payload.auto_route_niche:
+            niche_match = conn_service.resolve_account_by_niche(plat_key, f"{full_title} {final_desc}")
+            if niche_match and niche_match.get("connection"):
+                selected_account = niche_match["connection"]["connection_id"]
+
         draft = PostDraft(
             render_id=render.id,
             platform=plat_key,
+            account_id=selected_account or None,
             title=full_title,
             description=final_desc,
             hashtags_json=json.dumps(tags_str.split()) if tags_str else None,

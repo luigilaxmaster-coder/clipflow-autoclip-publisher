@@ -182,6 +182,9 @@ class AccountConnection(Base):
     last_checked_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
     limits_json = Column(Text, nullable=True)
+    niche_tags = Column(String(512), nullable=True)
+    daily_upload_limit = Column(Integer, default=6, nullable=False)
+    is_default = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -254,6 +257,7 @@ class OAuthState(Base):
 
     state = Column(String(128), primary_key=True)
     provider_id = Column(String(64), nullable=False, index=True)
+    connection_id = Column(String(36), nullable=True)
     redirect_uri = Column(String(1024), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used = Column(Boolean, default=False, nullable=False)

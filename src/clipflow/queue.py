@@ -69,11 +69,14 @@ class PublishQueueWorker:
             return self.publisher
         return UnifiedPublisher(connection_service=ConnectionService(session), mock_mode=False)
 
-    def _query_remote_status(self, pub: BasePublisher, lookup_id: str, platform: str):
+    def _query_remote_status(self, pub: BasePublisher, lookup_id: str, platform: str, account_ref: Optional[str] = None):
         sig = inspect.signature(pub.get_status)
+        kwargs = {}
         if "platform" in sig.parameters:
-            return pub.get_status(lookup_id, platform=platform)  # type: ignore[call-arg]
-        return pub.get_status(lookup_id)
+            kwargs["platform"] = platform
+        if "account_ref" in sig.parameters and account_ref:
+            kwargs["account_ref"] = account_ref
+        return pub.get_status(lookup_id, **kwargs)  # type: ignore[call-arg]
 
     def process_due_job(self, session: Session) -> Optional[PublishJob]:
         """Reclama y procesa atómicamente el siguiente trabajo listo en la cola."""
@@ -97,12 +100,14 @@ class PublishQueueWorker:
         render: Optional[Render] = draft.render if draft else None
         platform_name = draft.platform.lower() if draft else "unknown"
 
+        account_ref = draft.account_id if draft else None
+
         # 1. Pre-reconciliación estricta anti-duplicados:
         # Si ya existe remote_post_id o remote_request_id previo, verificar antes de re-subir
         lookup_id = job.remote_post_id or job.remote_request_id
         if lookup_id:
             try:
-                pre_check = self._query_remote_status(pub, lookup_id, platform_name)
+                pre_check = self._query_remote_status(pub, lookup_id, platform_name, account_ref=account_ref)
                 if pre_check.ok and pre_check.status in (JobStatus.PUBLISHED, "PUBLISHED"):
                     job.status = JobStatus.PUBLISHED
                     job.remote_post_id = pre_check.remote_post_id or job.remote_post_id
@@ -129,18 +134,41 @@ class PublishQueueWorker:
             except Exception as e:
                 logger.debug("Pre-reconciliación no concluyente para job %s: %s", job.id, redact_secrets(str(e)))
 
-        # 2. Verificar si la plataforma está pausada por fallo de autenticación previo
-        conn = session.query(AccountConnection).filter(AccountConnection.provider_id == platform_name).first()
+        # 2. Verificar estado del perfil específico y su límite diario configurado
+        conn_svc = ConnectionService(session)
+        conn = conn_svc.get_connection(platform_name, account_ref=account_ref)
         if conn and conn.status in (ConnectionStatus.EXPIRED, ConnectionStatus.INSUFFICIENT_PERMS):
             job.status = JobStatus.REQUIRES_ACTION
             job.last_error = (
-                f"Publicación pausada automáticamente: La conexión con '{platform_name}' "
+                f"Publicación pausada automáticamente: El perfil '{conn.account_name}' ({platform_name}) "
                 "requiere re-autorización."
             )
             job.updated_at = now
-            record_audit(session, "PublishJob", job.id, "worker", "auth_pause", None, {"platform": platform_name})
+            record_audit(session, "PublishJob", job.id, "worker", "auth_pause", None, {"platform": platform_name, "connection_id": conn.id})
             session.commit()
             return job
+
+        if conn and not getattr(pub, "mock_mode", False):
+            limit = max(1, int(conn.daily_upload_limit or 6))
+            used_today = conn_svc.count_uploads_last_24h(conn)
+            if used_today >= limit:
+                job.status = "QUEUED_FOR_DAILY_QUOTA"
+                job.last_error = (
+                    f"Cupo diario alcanzado para '{conn.account_name}' ({used_today}/{limit} en 24h). "
+                    "Esperando ventana disponible sin redirigir a otros canales."
+                )
+                job.updated_at = now
+                record_audit(
+                    session,
+                    "PublishJob",
+                    job.id,
+                    "worker",
+                    "daily_quota_reached",
+                    None,
+                    {"connection_id": conn.id, "used_today": used_today, "limit": limit},
+                )
+                session.commit()
+                return job
 
         job.attempt_count += 1
         job.status = JobStatus.UPLOADING
@@ -236,7 +264,8 @@ class PublishQueueWorker:
 
         if any(pat in err_lower for pat in AUTH_ERROR_PATTERNS):
             job.status = JobStatus.REQUIRES_ACTION
-            conn = session.query(AccountConnection).filter(AccountConnection.provider_id == platform).first()
+            account_ref = job.post_draft.account_id if job.post_draft else None
+            conn = ConnectionService(session).get_connection(platform, account_ref=account_ref)
             if conn:
                 conn.status = ConnectionStatus.EXPIRED
                 conn.last_error = safe_error

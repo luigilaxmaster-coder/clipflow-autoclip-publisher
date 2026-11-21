@@ -4,7 +4,7 @@ from __future__ import annotations
 import inspect
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -20,11 +20,14 @@ class Reconciler:
     def __init__(self, publisher: BasePublisher):
         self.publisher = publisher
 
-    def _query_status(self, lookup_id: str, platform: str):
+    def _query_status(self, lookup_id: str, platform: str, account_ref: Optional[str] = None):
         sig = inspect.signature(self.publisher.get_status)
+        kwargs = {}
         if "platform" in sig.parameters:
-            return self.publisher.get_status(lookup_id, platform=platform)  # type: ignore[call-arg]
-        return self.publisher.get_status(lookup_id)
+            kwargs["platform"] = platform
+        if "account_ref" in sig.parameters and account_ref:
+            kwargs["account_ref"] = account_ref
+        return self.publisher.get_status(lookup_id, **kwargs)  # type: ignore[call-arg]
 
     def reconcile_pending_jobs(self, session: Session) -> List[PublishJob]:
         """Consulta todos los trabajos en procesamiento remoto o subida interrumpida y actualiza su estado."""
@@ -34,6 +37,7 @@ class Reconciler:
 
         for job in jobs:
             platform = job.post_draft.platform.lower() if job.post_draft else ""
+            account_ref = job.post_draft.account_id if job.post_draft else None
             lookup_id = job.remote_post_id or job.remote_request_id
 
             # Caso 1: Subida resumible interrumpida (hay upload_session_uri pero aún no hay remote_post_id)
@@ -48,7 +52,12 @@ class Reconciler:
                 if video_path and Path(video_path).is_file():
                     try:
                         total_size = Path(video_path).stat().st_size
-                        probe = self.publisher.native_youtube.probe_resumable_upload(
+                        yt_pub = (
+                            self.publisher._build_native_youtube(account_ref=account_ref)
+                            if hasattr(self.publisher, "_build_native_youtube")
+                            else self.publisher.native_youtube
+                        )
+                        probe = yt_pub.probe_resumable_upload(
                             job.upload_session_uri, total_size
                         )
                         job.last_checked_at = utc_now()
@@ -80,7 +89,7 @@ class Reconciler:
                 continue
 
             try:
-                res = self._query_status(lookup_id, platform)
+                res = self._query_status(lookup_id, platform, account_ref=account_ref)
                 old_status = job.status
                 job.last_checked_at = utc_now()
 
