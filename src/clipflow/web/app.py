@@ -6,9 +6,10 @@ import json
 import logging
 import os
 import shutil
+import threading
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, quote
@@ -23,11 +24,15 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from clipflow.approvals import ApprovalService
+from clipflow.autoclip_adapter import AutoClipAdapter
 from clipflow.config import get_settings
 from clipflow.connections.service import ConnectionService
-from clipflow.db import get_db, init_db, record_audit
+from clipflow.db import get_db, get_db_context, init_db, record_audit
 from clipflow.inbox.service import InboxService
+from clipflow.ingestion import IngestionService
 from clipflow.media_library import MediaLibraryService
+from clipflow.media_qa import MediaQA
+from clipflow.metadata import MetadataGenerator
 from clipflow.models import (
     AccountConnection,
     AuditEvent,
@@ -43,6 +48,7 @@ from clipflow.models import (
     Source,
     utc_now,
 )
+from clipflow.publishing.native_tiktok import NativeTikTokPublisher
 from clipflow.publishing.native_youtube import NativeYouTubePublisher
 from clipflow.publishing.postiz import PostizPublisher
 from clipflow.publishing.unified import UnifiedPublisher
@@ -172,6 +178,32 @@ def _system_health_snapshot(db: Session) -> Dict[str, Any]:
         "postiz_configured": postiz_configured,
         "postiz_online": postiz_online,
         "status": "healthy" if (db_ok and ffmpeg_ok) else "degraded",
+    }
+
+
+def _youtube_daily_quota_snapshot(db: Session) -> Dict[str, Any]:
+    """Calcula el consumo estimado de cuota diaria de YouTube Data API v3 (1,600 unidades/subida sobre 10,000 estándar)."""
+    since = utc_now() - timedelta(hours=24)
+    recent_yt = (
+        db.query(PublishJob)
+        .join(PostDraft, PublishJob.post_draft_id == PostDraft.id)
+        .filter(
+            PostDraft.platform == "youtube",
+            PublishJob.status.in_([JobStatus.PUBLISHED, JobStatus.PROCESSING, "REMOTE_PROCESSING", JobStatus.UPLOADING]),
+            PublishJob.updated_at >= since,
+        )
+        .count()
+    )
+    daily_units = int(os.getenv("YOUTUBE_DAILY_QUOTA_UNITS", "10000"))
+    unit_cost = 1600
+    max_uploads = max(1, daily_units // unit_cost)
+    used_units = recent_yt * unit_cost
+    return {
+        "used_uploads": recent_yt,
+        "max_uploads": max_uploads,
+        "remaining_uploads": max(0, max_uploads - recent_yt),
+        "used_units": used_units,
+        "daily_units": daily_units,
     }
 
 
@@ -412,6 +444,7 @@ def overview_view(request: Request, db: Session = Depends(get_db)):
             "platform_breakdown": platform_breakdown,
             "daily_counts": dict(sorted(daily_counts.items())[-14:]),
             "health": health,
+            "youtube_quota": _youtube_daily_quota_snapshot(db),
         },
     )
 
@@ -430,6 +463,9 @@ def connections_view(
     youtube_redirect_uri = (os.getenv("YOUTUBE_REDIRECT_URI") or "").strip() or str(
         request.url_for("youtube_oauth_callback")
     )
+    tiktok_redirect_uri = (os.getenv("TIKTOK_REDIRECT_URI") or "").strip() or str(
+        request.url_for("tiktok_oauth_callback")
+    )
     return _render(
         request,
         "connections.html",
@@ -440,6 +476,7 @@ def connections_view(
             "oauth_provider": provider,
             "oauth_error": oauth_error,
             "youtube_redirect_uri": youtube_redirect_uri,
+            "tiktok_redirect_uri": tiktok_redirect_uri,
         },
     )
 
@@ -579,7 +616,11 @@ def queue_view(request: Request, db: Session = Depends(get_db)):
         "published": sum(1 for j in jobs if j.status == JobStatus.PUBLISHED),
         "attention": sum(1 for j in jobs if j.status in (JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED")),
     }
-    return _render(request, "queue.html", {"jobs": jobs, "counts": counts})
+    return _render(
+        request,
+        "queue.html",
+        {"jobs": jobs, "counts": counts, "youtube_quota": _youtube_daily_quota_snapshot(db)},
+    )
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -761,14 +802,246 @@ def api_youtube_oauth_refresh(db: Session = Depends(get_db)):
     return conn_service.refresh_connection_tokens("youtube")
 
 
+@app.get("/api/connections/tiktok/oauth/start")
+def api_tiktok_oauth_start(request: Request, db: Session = Depends(get_db)):
+    """Inicia el flujo OAuth 2.0 interactivo de TikTok con estado criptográfico de un solo uso."""
+    conn_service = ConnectionService(db)
+    creds = conn_service.get_decrypted_credentials("tiktok")
+    client_key = (creds.get("client_key") or os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
+    client_secret = (creds.get("client_secret") or os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
+
+    if not client_key or not client_secret:
+        raise HTTPException(
+            status_code=400,
+            detail="Primero guarda TIKTOK_CLIENT_KEY y TIKTOK_CLIENT_SECRET en Connected Apps.",
+        )
+
+    redirect_uri = (os.getenv("TIKTOK_REDIRECT_URI") or "").strip() or str(
+        request.url_for("tiktok_oauth_callback")
+    )
+    state_val = conn_service.create_oauth_state("tiktok", redirect_uri)
+
+    pub = NativeTikTokPublisher(
+        client_key=client_key,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+        mock_mode=False,
+    )
+    auth_url = pub.get_authorization_url(state=state_val)
+
+    if "application/json" in (request.headers.get("Accept") or "").lower():
+        return {"ok": True, "auth_url": auth_url, "redirect_uri": redirect_uri}
+    return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/api/connections/tiktok/callback", name="tiktok_oauth_callback")
+def api_tiktok_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Callback oficial de TikTok OAuth 2.0: valida state, canjea código, cifra tokens y verifica perfil."""
+    if error:
+        err_text = redact_secrets(error_description or f"TikTok devolvió el error OAuth: {error}")
+        return RedirectResponse(
+            url=f"/connections?oauth=error&provider=tiktok&oauth_error={quote(err_text)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Faltan parámetros obligatorios 'code' o 'state' de TikTok.")
+
+    conn_service = ConnectionService(db)
+    state_entry = conn_service.consume_oauth_state(state, "tiktok")
+    if not state_entry:
+        raise HTTPException(status_code=400, detail="Estado OAuth de TikTok inválido, expirado o ya utilizado.")
+
+    creds = conn_service.get_decrypted_credentials("tiktok")
+    client_key = (creds.get("client_key") or os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
+    client_secret = (creds.get("client_secret") or os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
+
+    pub = NativeTikTokPublisher(
+        client_key=client_key,
+        client_secret=client_secret,
+        redirect_uri=state_entry.redirect_uri,
+        mock_mode=False,
+    )
+    try:
+        token_data = pub.exchange_code(code)
+    except Exception as e:
+        err_msg = redact_secrets(str(e))
+        return RedirectResponse(
+            url=f"/connections?oauth=error&provider=tiktok&oauth_error={quote(err_msg)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    raw_scope = token_data.get("scope", "")
+    scopes = [s.strip() for s in raw_scope.replace(",", " ").split() if s.strip()] if raw_scope else None
+    result = conn_service.update_oauth_tokens(
+        provider_id="tiktok",
+        access_token=token_data.get("access_token", ""),
+        refresh_token=token_data.get("refresh_token"),
+        expires_in=token_data.get("expires_in"),
+        scopes=scopes,
+        verify_now=True,
+        extra_fields={
+            "client_key": client_key,
+            "client_secret": client_secret,
+            "open_id": token_data.get("open_id"),
+        },
+    )
+    record_audit(
+        db,
+        "AccountConnection",
+        "tiktok",
+        "owner",
+        "oauth_connected" if result["ok"] else "oauth_verify_failed",
+        None,
+        {"status": result["status"], "account_id": result.get("account_id")},
+    )
+    db.commit()
+
+    if result["ok"]:
+        return RedirectResponse(url="/connections?oauth=success&provider=tiktok", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        url=f"/connections?oauth=error&provider=tiktok&oauth_error={quote(result['message'])}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/api/connections/tiktok/oauth/refresh")
+def api_tiktok_oauth_refresh(db: Session = Depends(get_db)):
+    conn_service = ConnectionService(db)
+    return conn_service.refresh_connection_tokens("tiktok")
+
+
 # -------------------------------------------------------------
-# API Endpoints: Media Library & Videos
+# API Endpoints: Media Library, Ingesta & Videos
 # -------------------------------------------------------------
 @app.post("/api/media/sync")
 def api_sync_media(db: Session = Depends(get_db)):
     service = MediaLibraryService(db)
     service.sync_renders_from_autoclip()
     return RedirectResponse(url="/media-library", status_code=status.HTTP_303_SEE_OTHER)
+
+
+class ImportFolderRequest(BaseModel):
+    folder_path: str
+
+
+@app.post("/api/media/import-folder")
+def api_import_media_folder(payload: ImportFolderRequest, db: Session = Depends(get_db)):
+    """Importa clips MP4/MOV/MKV desde una carpeta permitida dentro del workspace."""
+    workspace_root = Path.cwd().resolve()
+    raw_input = Path(payload.folder_path.strip())
+    target = (workspace_root / raw_input).resolve() if not raw_input.is_absolute() else raw_input.resolve()
+
+    # Prevenir acceso fuera del workspace permitido
+    allowed_roots = [workspace_root, (workspace_root / "clips_para_seleccion").resolve(), (workspace_root / "runs").resolve()]
+    if not any(target == r or r in target.parents for r in allowed_roots):
+        raise HTTPException(status_code=403, detail="La carpeta debe residir dentro del workspace de AutoClip.")
+    if not target.is_dir():
+        raise HTTPException(status_code=404, detail=f"Carpeta no encontrada: {target}")
+
+    imported = MediaLibraryService(db).scan_local_directory(str(target))
+    return {"ok": True, "imported": imported, "folder": str(target)}
+
+
+class IngestUrlRequest(BaseModel):
+    source_url: str
+    platforms: List[str] = ["youtube_shorts"]
+    portrait_style: str = "podcast"
+    template: str = "classic"
+
+
+def _run_background_autoclip_project(project_id: str, source_url: str, platforms: List[str], portrait_style: str, template: str) -> None:
+    try:
+        adapter = AutoClipAdapter()
+        qa = MediaQA()
+        meta_gen = MetadataGenerator()
+        res = adapter.run_produce_python(
+            source=source_url,
+            platforms=platforms,
+            portrait_style=portrait_style,
+            template=template,
+        )
+        variants = adapter.extract_output_variants(res)
+        with get_db_context() as bg_db:
+            proj = bg_db.query(Project).filter(Project.id == project_id).first()
+            if not proj:
+                return
+            proj.autoclip_project_id = res.get("project_id")
+            proj.upstream_version = res.get("upstream_version")
+            for idx, var in enumerate(variants, start=1):
+                vid_path = var.get("video_path")
+                if not vid_path or not Path(vid_path).is_file():
+                    continue
+                rep = qa.validate_clip(vid_path, platform=var.get("strategy_id", "youtube_shorts"))
+                render = Render(
+                    project_id=proj.id,
+                    output_variant_id=var.get("output_variant_id"),
+                    studio_job_id=Path(vid_path).stem,
+                    target_platform=var.get("strategy_id", "youtube_shorts"),
+                    video_path=str(Path(vid_path).resolve()),
+                    cover_path=var.get("cover_path"),
+                    kit_path=var.get("kit_path"),
+                    duration_sec=rep.duration_sec,
+                    width=rep.width,
+                    height=rep.height,
+                    qa_status=rep.overall_status,
+                    qa_json=json.dumps(rep.to_dict(), ensure_ascii=False),
+                )
+                bg_db.add(render)
+                bg_db.flush()
+                for d in meta_gen.generate_drafts(
+                    render_id=render.id,
+                    base_title=var.get("title") or f"Clip {idx}",
+                    base_description=var.get("description"),
+                    tags=var.get("tags") or [],
+                ):
+                    bg_db.add(d)
+            proj.workflow_status = "READY_TO_REVIEW"
+            bg_db.commit()
+            MediaLibraryService(bg_db).sync_renders_from_autoclip()
+    except Exception as e:
+        logger.error("Fallo en producción en segundo plano (%s): %s", project_id, redact_secrets(str(e)))
+        try:
+            with get_db_context() as bg_db:
+                proj = bg_db.query(Project).filter(Project.id == project_id).first()
+                if proj:
+                    proj.workflow_status = "FAILED"
+                    bg_db.commit()
+        except Exception:
+            pass
+
+
+@app.post("/api/projects/ingest-url")
+def api_ingest_project_url(payload: IngestUrlRequest, db: Session = Depends(get_db)):
+    """Valida una URL HTTPS de YouTube/Bilibili e inicia generación en segundo plano con AutoClip."""
+    ingestion = IngestionService()
+    try:
+        src = ingestion.process_source(source_input=payload.source_url, rights_confirmed=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=redact_secrets(str(e)))
+
+    db.add(src)
+    db.flush()
+    proj = Project(source_id=src.id, workflow_status="ANALYZING")
+    db.add(proj)
+    db.flush()
+    record_audit(db, "Project", proj.id, "owner", "web_ingest_url", None, {"source": src.canonical_source})
+    db.commit()
+
+    t = threading.Thread(
+        target=_run_background_autoclip_project,
+        args=(proj.id, src.canonical_source, payload.platforms, payload.portrait_style, payload.template),
+        daemon=True,
+    )
+    t.start()
+    return {"ok": True, "project_id": proj.id, "workflow_status": proj.workflow_status}
 
 
 @app.get("/api/media/asset/{asset_id}")
@@ -1079,6 +1352,29 @@ def api_auto_reply_toggle(db: Session = Depends(get_db)):
     return RedirectResponse("/inbox", status_code=status.HTTP_303_SEE_OTHER)
 
 
+@app.post("/api/inbox/sync")
+def api_inbox_sync(db: Session = Depends(get_db)):
+    """Sincroniza comentarios reales de los últimos videos publicados en YouTube."""
+    inbox_service = InboxService(db)
+    yt_jobs = (
+        db.query(PublishJob)
+        .join(PostDraft, PublishJob.post_draft_id == PostDraft.id)
+        .filter(
+            PostDraft.platform == "youtube",
+            PublishJob.status == JobStatus.PUBLISHED,
+            PublishJob.remote_post_id != None,
+        )
+        .order_by(PublishJob.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    imported = 0
+    for j in yt_jobs:
+        if j.remote_post_id:
+            imported += inbox_service.sync_comments_from_youtube(j.remote_post_id)
+    return RedirectResponse(url=f"/inbox?synced={imported}", status_code=status.HTTP_303_SEE_OTHER)
+
+
 # -------------------------------------------------------------
 # API Endpoints: Sistema, Backups & Health Check
 # -------------------------------------------------------------
@@ -1133,4 +1429,5 @@ def api_status(db: Session = Depends(get_db)):
         "queued_jobs": db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.QUEUED, JobStatus.SCHEDULED])).count(),
         "published_jobs": db.query(PublishJob).filter(PublishJob.status == JobStatus.PUBLISHED).count(),
         "failed_jobs": db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED"])).count(),
+        "youtube_quota": _youtube_daily_quota_snapshot(db),
     }

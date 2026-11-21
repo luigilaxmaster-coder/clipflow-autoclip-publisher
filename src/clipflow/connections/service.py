@@ -43,19 +43,33 @@ class ConnectionService:
                 expires_at = db_conn.expires_at.isoformat() if db_conn.expires_at else None
                 conn_id = db_conn.id
                 creds = decrypt_credentials(db_conn.encrypted_credentials) if db_conn.encrypted_credentials else {}
-                has_oauth_client = bool(creds.get("client_id") and creds.get("client_secret"))
+                has_oauth_client = bool(creds.get("client_id") and creds.get("client_secret")) or bool(
+                    creds.get("client_key") and creds.get("client_secret")
+                )
                 if info.id == "youtube" and not has_oauth_client:
                     has_oauth_client = bool(
                         (os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
                         and (os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
                     )
+                elif info.id == "tiktok" and not has_oauth_client:
+                    has_oauth_client = bool(
+                        (os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
+                        and (os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
+                    )
                 has_refresh_token = bool(creds.get("refresh_token"))
                 scopes = json.loads(db_conn.scopes_json) if db_conn.scopes_json else []
             else:
                 has_oauth_client = bool(
-                    info.id == "youtube"
-                    and (os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
-                    and (os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
+                    (
+                        info.id == "youtube"
+                        and (os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
+                        and (os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
+                    )
+                    or (
+                        info.id == "tiktok"
+                        and (os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
+                        and (os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
+                    )
                 )
                 status = ConnectionStatus.NEEDS_APPROVAL if has_oauth_client else ConnectionStatus.NEEDS_CONFIG
                 account_name = None
@@ -249,6 +263,7 @@ class ConnectionService:
         verify_now: bool = True,
         client_id: Optional[str] = None,
         client_secret: Optional[str] = None,
+        extra_fields: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Actualiza los tokens OAuth cifrados preservando client_id/client_secret y refresh_token previo."""
         provider = get_provider(provider_id)
@@ -265,6 +280,10 @@ class ConnectionService:
             creds["client_id"] = client_id.strip()
         if client_secret:
             creds["client_secret"] = client_secret.strip()
+        if extra_fields:
+            for k, v in extra_fields.items():
+                if v is not None and v != "":
+                    creds[k] = v
         creds["access_token"] = access_token
         if refresh_token:
             creds["refresh_token"] = refresh_token

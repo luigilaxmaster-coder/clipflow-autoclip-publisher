@@ -214,32 +214,114 @@ class TikTokProvider(BaseProvider):
             name="TikTok",
             kind="social",
             auth_type="oauth2",
-            description="Publicación de videos verticales en feed mediante TikTok Content Posting API.",
-            known_limits="Apps sin auditoría comercial quedan restringidas a visualización privada (SELF_ONLY) o borrador en bandeja de entrada (fallback_to_inbox).",
-            required_fields=["client_key", "client_secret", "access_token"],
+            description="Publicación de videos verticales mediante TikTok Content Posting API v2 con OAuth 2.0 interactivo.",
+            known_limits="Apps sin auditoría comercial quedan restringidas a visualización privada (SELF_ONLY) o borrador en bandeja de entrada (fallback_to_inbox -> ACTION_REQUIRED).",
+            required_fields=["client_key", "client_secret"],
             capabilities=["video_upload", "direct_post", "inbox_draft"],
             doc_url="https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
         )
+
+    def refresh_token(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
+        refresh_tok = (credentials.get("refresh_token") or "").strip()
+        client_key = (credentials.get("client_key") or "").strip()
+        client_secret = (credentials.get("client_secret") or "").strip()
+        if not (refresh_tok and client_key and client_secret):
+            raise RuntimeError("Faltan client_key, client_secret o refresh_token para renovar la sesión de TikTok.")
+
+        resp = requests.post(
+            "https://open.tiktokapis.com/v2/oauth/token/",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "client_key": client_key,
+                "client_secret": client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_tok,
+            },
+            timeout=15.0,
+        )
+        data = resp.json() if resp.text.startswith("{") else {}
+        if resp.status_code != 200 or data.get("error"):
+            err = data.get("error_description") or data.get("error") or f"HTTP {resp.status_code}"
+            raise RuntimeError(redact_secrets(f"Error al renovar token de TikTok: {err}"))
+
+        updated = dict(credentials)
+        if data.get("access_token"):
+            updated["access_token"] = data["access_token"]
+        if data.get("refresh_token"):
+            updated["refresh_token"] = data["refresh_token"]
+        if data.get("expires_in"):
+            updated["expires_in"] = int(data["expires_in"])
+        if data.get("scope"):
+            updated["scopes"] = [s.strip() for s in data["scope"].replace(",", " ").split() if s.strip()]
+        return updated
 
     def test_connection(self, credentials: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
         blocked = _check_mock_credentials(credentials)
         if blocked:
             return blocked
-        token = credentials.get("access_token")
-        if not token:
-            return False, "Falta access_token de TikTok.", {}
+
         if credentials.get("mock"):
-            return True, "Cuenta TikTok conectada: @tiktok_owner (Audit Pending: SELF_ONLY)", {"open_id": "mock_open_id"}
+            return True, "Cuenta TikTok conectada: @tiktok_owner (Audit Pending: SELF_ONLY)", {
+                "open_id": "mock_open_id",
+                "channel_id": "mock_open_id",
+                "channel_title": "tiktok_owner",
+            }
+
+        token = (credentials.get("access_token") or "").strip()
+        refresh_tok = (credentials.get("refresh_token") or "").strip()
+        refreshed_creds: Optional[Dict[str, Any]] = None
+
+        if not token and refresh_tok and credentials.get("client_key") and credentials.get("client_secret"):
+            try:
+                refreshed_creds = self.refresh_token(credentials)
+                token = refreshed_creds.get("access_token", "")
+            except Exception as e:
+                return False, redact_secrets(f"No se pudo renovar token OAuth de TikTok: {e}"), {"status": 401}
+
+        if not token:
+            if credentials.get("client_key") and credentials.get("client_secret"):
+                return (
+                    False,
+                    "Client Key y Client Secret guardados. Falta completar la autorización interactiva con TikTok OAuth 2.0.",
+                    {"needs_oauth": True},
+                )
+            return False, "Faltan credenciales OAuth de TikTok (client_key, client_secret y autorización).", {}
+
         try:
             resp = requests.get(
                 "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=10.0,
             )
+            if resp.status_code == 401 and refresh_tok and credentials.get("client_key") and credentials.get("client_secret"):
+                try:
+                    refreshed_creds = self.refresh_token(credentials)
+                    token = refreshed_creds.get("access_token", "")
+                    resp = requests.get(
+                        "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name",
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=10.0,
+                    )
+                except Exception as e:
+                    return False, redact_secrets(f"Token de TikTok expirado y fallo al renovar: {e}"), {"status": 401}
+
             if resp.status_code == 200:
-                data = resp.json().get("data", {}).get("user", {})
-                name = data.get("display_name", "TikTok User")
-                return True, f"Cuenta verificada: {name} (Restricción por defecto: SELF_ONLY)", data
+                user = resp.json().get("data", {}).get("user", {})
+                name = user.get("display_name") or "TikTok User"
+                open_id = user.get("open_id") or ""
+                diag: Dict[str, Any] = {
+                    "open_id": open_id,
+                    "channel_id": open_id,
+                    "channel_title": name,
+                    "raw": user,
+                }
+                if refreshed_creds:
+                    diag["_refreshed_credentials"] = refreshed_creds
+                return True, f"Cuenta verificada: {name} (Restricción por defecto: SELF_ONLY)", diag
+            if resp.status_code == 401:
+                return False, "El token de TikTok ha expirado. Se requiere re-autorización OAuth.", {"status": 401}
+            if resp.status_code == 403:
+                return False, "Permisos insuficientes en TikTok (revisa scopes user.info.basic y video.upload).", {"status": 403}
             return False, redact_secrets(f"TikTok HTTP {resp.status_code}"), {"status": resp.status_code}
         except Exception as e:
             return False, redact_secrets(f"Error al verificar TikTok: {e}"), {}

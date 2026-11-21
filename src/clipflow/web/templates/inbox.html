@@ -17,6 +17,10 @@
       </span>
     </div>
     <div class="flex items-center gap-2">
+      <form action="/api/inbox/sync" method="post" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Sincronizar Comentarios</button>
+      </form>
       <form action="/api/inbox/auto-reply/toggle" method="post" style="margin:0;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
         <button type="submit" class="btn btn-secondary btn-sm">

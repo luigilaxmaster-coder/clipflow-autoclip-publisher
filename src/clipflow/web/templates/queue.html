@@ -17,6 +17,11 @@
     </div>
 
     <div class="flex items-center gap-2">
+      {% if youtube_quota %}
+        <span class="badge {% if youtube_quota.remaining_uploads > 0 %}badge-info{% else %}badge-warn{% endif %}">
+          Cuota YouTube 24h: {{ youtube_quota.used_uploads }}/{{ youtube_quota.max_uploads }}
+        </span>
+      {% endif %}
       <a href="/audit" class="btn btn-secondary btn-sm">Registro de Auditoría</a>
       <button type="button" onclick="triggerWorkerTick()" class="btn btn-primary btn-sm">Procesar Cola Ahora</button>
     </div>

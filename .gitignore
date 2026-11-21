@@ -67,4 +67,6 @@ htmlcov/
 *.mp3
 clips_para_seleccion/
 runs/**/media/
+runs/live-test-*/
+*.m3u8
 autoclip-upstream/

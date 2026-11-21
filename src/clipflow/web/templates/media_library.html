@@ -22,10 +22,14 @@
       </div>
     </div>
 
-    <form action="/api/media/sync" method="post" style="margin:0;">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
-      <button type="submit" class="btn btn-primary btn-sm">Sincronizar AutoClip Renders</button>
-    </form>
+    <div class="flex items-center flex-wrap gap-2">
+      <button type="button" onclick="openIngestUrlModal()" class="btn btn-secondary btn-sm">Procesar URL YouTube</button>
+      <button type="button" onclick="openImportFolderModal()" class="btn btn-secondary btn-sm">Importar Carpeta</button>
+      <form action="/api/media/sync" method="post" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn btn-primary btn-sm">Sincronizar AutoClip Renders</button>
+      </form>
+    </div>
   </section>
 
   {% if enriched_assets %}
@@ -105,6 +109,58 @@
     </div>
   {% endif %}
 
+  <!-- Import Folder Modal -->
+  <div id="importFolderModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="card-title">Importar Carpeta Local</h3>
+        <button type="button" onclick="document.getElementById('importFolderModal').classList.remove('open')" class="btn btn-ghost btn-icon">&times;</button>
+      </div>
+      <form onsubmit="submitImportFolder(event)">
+        <div class="modal-body">
+          <div class="field">
+            <label for="folderPathInput" class="field-label">Ruta relativa en el workspace</label>
+            <input type="text" id="folderPathInput" required value="clips_para_seleccion/FuenteD_Vegetta777_GTA6" class="input">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="document.getElementById('importFolderModal').classList.remove('open')" class="btn btn-secondary btn-sm">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Escanear e Importar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Ingest URL Modal -->
+  <div id="ingestUrlModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="card-title">Procesar Video desde URL (VOD)</h3>
+        <button type="button" onclick="document.getElementById('ingestUrlModal').classList.remove('open')" class="btn btn-ghost btn-icon">&times;</button>
+      </div>
+      <form onsubmit="submitIngestUrl(event)">
+        <div class="modal-body">
+          <div class="field">
+            <label for="sourceUrlInput" class="field-label">Enlace HTTPS de YouTube o Bilibili</label>
+            <input type="url" id="sourceUrlInput" required placeholder="https://www.youtube.com/watch?v=..." class="input">
+          </div>
+          <div class="field">
+            <label for="portraitStyleSelect" class="field-label">Estilo de encuadre AutoClip</label>
+            <select id="portraitStyleSelect" class="select">
+              <option value="podcast">Podcast (9:16 centrado)</option>
+              <option value="auto">Automático</option>
+              <option value="interview">Entrevista</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="document.getElementById('ingestUrlModal').classList.remove('open')" class="btn btn-secondary btn-sm">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Iniciar Producción</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- MediaQA Inspector Modal -->
   <div id="mediaInspectorModal" class="modal-backdrop" role="dialog" aria-modal="true">
     <div class="modal-dialog" style="max-width:640px;">
@@ -164,6 +220,49 @@
     const vid = document.getElementById('inspVideo');
     vid.pause();
     document.getElementById('mediaInspectorModal').classList.remove('open');
+  }
+
+  function openImportFolderModal() {
+    document.getElementById('importFolderModal').classList.add('open');
+  }
+
+  function openIngestUrlModal() {
+    document.getElementById('ingestUrlModal').classList.add('open');
+  }
+
+  async function submitImportFolder(e) {
+    e.preventDefault();
+    const folderPath = document.getElementById('folderPathInput').value.trim();
+    const res = await window.clipflowFetch('/api/media/import-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_path: folderPath })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      window.showToast(data.detail || 'Error al importar carpeta', 'error');
+      return;
+    }
+    window.showToast(`Importados ${data.imported} videos nuevos.`, 'success');
+    setTimeout(() => window.location.reload(), 900);
+  }
+
+  async function submitIngestUrl(e) {
+    e.preventDefault();
+    const sourceUrl = document.getElementById('sourceUrlInput').value.trim();
+    const portraitStyle = document.getElementById('portraitStyleSelect').value;
+    const res = await window.clipflowFetch('/api/projects/ingest-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_url: sourceUrl, platforms: ['youtube_shorts'], portrait_style: portraitStyle })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      window.showToast(data.detail || 'Error al iniciar proyecto', 'error');
+      return;
+    }
+    window.showToast(`Proyecto ${data.project_id.slice(0, 8)} iniciado en segundo plano.`, 'success');
+    document.getElementById('ingestUrlModal').classList.remove('open');
   }
 </script>
 {% endblock %}

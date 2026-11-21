@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from clipflow.connections.service import ConnectionService
 from clipflow.publishing.base import BasePublisher, PublishResult
+from clipflow.publishing.native_tiktok import NativeTikTokPublisher
 from clipflow.publishing.native_youtube import NativeYouTubePublisher
 from clipflow.publishing.postiz import PostizPublisher
 from clipflow.publishing.upload_post import UploadPostPublisher
@@ -38,8 +39,39 @@ class UnifiedPublisher(BasePublisher):
         self.connection_service = connection_service or (ConnectionService(db) if db is not None else None)
 
         self.native_youtube = self._build_native_youtube()
+        self.native_tiktok = self._build_native_tiktok()
         self.postiz = PostizPublisher(mock_mode=mock_mode)
         self.upload_post = UploadPostPublisher(mock_mode=mock_mode)
+
+    def _build_native_tiktok(self) -> NativeTikTokPublisher:
+        """Instancia NativeTikTokPublisher usando las credenciales cifradas guardadas en ConnectionService."""
+        if self.mock_mode:
+            return NativeTikTokPublisher(mock_mode=True)
+
+        if self.connection_service is not None:
+            creds = self.connection_service.get_decrypted_credentials("tiktok")
+            if creds:
+                def _persist_tt_refreshed(token_data: Dict[str, Any]) -> None:
+                    if self.connection_service and token_data.get("access_token"):
+                        self.connection_service.update_oauth_tokens(
+                            provider_id="tiktok",
+                            access_token=token_data["access_token"],
+                            refresh_token=token_data.get("refresh_token"),
+                            expires_in=token_data.get("expires_in"),
+                            scopes=token_data.get("scopes"),
+                            verify_now=False,
+                        )
+
+                return NativeTikTokPublisher(
+                    client_key=creds.get("client_key", ""),
+                    client_secret=creds.get("client_secret", ""),
+                    access_token=creds.get("access_token", ""),
+                    refresh_token=creds.get("refresh_token", ""),
+                    mock_mode=False,
+                    on_tokens_refreshed=_persist_tt_refreshed,
+                )
+
+        return NativeTikTokPublisher(mock_mode=False)
 
     def _build_native_youtube(self) -> NativeYouTubePublisher:
         """Instancia NativeYouTubePublisher usando las credenciales cifradas guardadas en ConnectionService."""
@@ -75,6 +107,7 @@ class UnifiedPublisher(BasePublisher):
     def refresh_connections(self) -> None:
         """Recarga las credenciales cifradas más recientes desde ConnectionService."""
         self.native_youtube = self._build_native_youtube()
+        self.native_tiktok = self._build_native_tiktok()
 
     def select_publisher_for_platform(self, platform: str) -> BasePublisher:
         plat = platform.lower()
@@ -85,17 +118,24 @@ class UnifiedPublisher(BasePublisher):
                 return self.postiz
             if plat == "youtube":
                 return self.native_youtube
+            if plat == "tiktok":
+                return self.native_tiktok
             return self.postiz
 
         # Asegurar credenciales actualizadas desde el almacén cifrado
         if plat == "youtube" and self.connection_service is not None:
             self.native_youtube = self._build_native_youtube()
+        elif plat == "tiktok" and self.connection_service is not None:
+            self.native_tiktok = self._build_native_tiktok()
 
         if self.prefer_engine == "postiz" and self.postiz.is_configured:
             return self.postiz
 
         if plat == "youtube" and self.native_youtube.is_configured:
             return self.native_youtube
+
+        if plat == "tiktok" and self.native_tiktok.is_configured:
+            return self.native_tiktok
 
         if self.postiz.is_configured and self.postiz.verify_account("owner", plat):
             return self.postiz
@@ -105,6 +145,8 @@ class UnifiedPublisher(BasePublisher):
 
         if plat == "youtube":
             return self.native_youtube
+        if plat == "tiktok":
+            return self.native_tiktok
         if self.postiz.is_configured:
             return self.postiz
         return self.upload_post
@@ -114,9 +156,13 @@ class UnifiedPublisher(BasePublisher):
 
         if self.connection_service is not None and not self.mock_mode:
             self.native_youtube = self._build_native_youtube()
+            self.native_tiktok = self._build_native_tiktok()
 
         if self.native_youtube.is_configured:
             all_profiles.extend(self.native_youtube.list_profiles())
+
+        if self.native_tiktok.is_configured:
+            all_profiles.extend(self.native_tiktok.list_profiles())
 
         if self.postiz.is_configured:
             all_profiles.extend(self.postiz.list_profiles())
@@ -202,8 +248,12 @@ class UnifiedPublisher(BasePublisher):
         plat = (platform or "").lower()
         if plat == "youtube" and (self.native_youtube.is_configured or self.mock_mode):
             return self.native_youtube.get_status(request_id, project_id)
+        if plat == "tiktok" and (self.native_tiktok.is_configured or self.mock_mode):
+            return self.native_tiktok.get_status(request_id, project_id)
         if request_id.startswith("yt-native-") or request_id.startswith("yt_mock_"):
             return self.native_youtube.get_status(request_id, project_id)
+        if request_id.startswith("tt-native-") or request_id.startswith("tt_mock_"):
+            return self.native_tiktok.get_status(request_id, project_id)
         if request_id.startswith("postiz-") or request_id.startswith("pz_") or (plat and self.prefer_engine == "postiz"):
             return self.postiz.get_status(request_id, project_id)
         return self.upload_post.get_status(request_id, project_id)
@@ -212,6 +262,8 @@ class UnifiedPublisher(BasePublisher):
         plat = (platform or "").lower()
         if plat == "youtube" or job_id.startswith("yt-native-") or job_id.startswith("yt_mock_"):
             return self.native_youtube.cancel_scheduled(job_id)
+        if plat == "tiktok" or job_id.startswith("tt-native-") or job_id.startswith("tt_mock_"):
+            return self.native_tiktok.cancel_scheduled(job_id)
         if job_id.startswith("postiz-") or job_id.startswith("pz_") or (plat and self.prefer_engine == "postiz"):
             return self.postiz.cancel_scheduled(job_id)
         return self.upload_post.cancel_scheduled(job_id)
