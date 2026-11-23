@@ -93,7 +93,7 @@ class LivePeakEditor:
             extracted = self.adapter.extract_output_variants(res)
             for item in extracted:
                 v_path = item.get("video_path")
-                qa_ok = bool(v_path and Path(v_path).is_file() and self.qa.check(v_path).ok)
+                qa_ok = bool(v_path and Path(v_path).is_file() and self.qa.validate_clip(v_path).passed)
                 variants.append({
                     **item,
                     "media_qa_passed": qa_ok,
@@ -102,13 +102,13 @@ class LivePeakEditor:
             return variants
 
         if source_video_path and Path(source_video_path).is_file():
-            qa_res = self.qa.check(source_video_path)
+            qa_res = self.qa.validate_clip(source_video_path)
             variants.append({
                 "output_variant_id": "direct_source_variant",
                 "video_path": source_video_path,
                 "duration_sec": qa_res.duration_sec,
-                "media_qa_passed": qa_res.ok,
-                "qa_reason": qa_res.reason if not qa_res.ok else "QA OK",
+                "media_qa_passed": qa_res.passed,
+                "qa_reason": qa_res.overall_status,
                 "content_hash": compute_content_hash(source_video_path),
             })
         return variants
