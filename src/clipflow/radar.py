@@ -86,6 +86,43 @@ class LiveStreamRadar:
             logger.debug("Canal %s no está en vivo actualmente: %s", creator_name, e)
         return None
 
+    def check_channel_live_session(self, creator_name: str, live_url: str) -> Optional[Dict[str, Any]]:
+        """
+        Variante continua 24h+ para Live Peak Intelligence: NO descarta un `video_id`
+        activo aunque haya aparecido en `processed_streams`, manteniendo el estado de sesión.
+        """
+        cmd = [
+            sys.executable,
+            "-m",
+            "yt_dlp",
+            "--dump-json",
+            "--no-playlist",
+            "--skip-download",
+            live_url,
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if res.returncode == 0 and res.stdout.strip():
+                data = json.loads(res.stdout.strip())
+                is_live = bool(data.get("is_live") or data.get("live_status") == "is_live")
+                video_id = data.get("id")
+                if not video_id:
+                    return None
+                return {
+                    "video_id": video_id,
+                    "url": data.get("webpage_url") or f"https://www.youtube.com/watch?v={video_id}",
+                    "title": data.get("title"),
+                    "creator": creator_name,
+                    "channel_id": data.get("channel_id") or data.get("uploader_id") or creator_name,
+                    "is_live": is_live,
+                    "live_state": "LIVE" if is_live else "ENDED",
+                    "view_count": data.get("concurrent_view_count") or data.get("view_count"),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+        except Exception as e:
+            logger.debug("Error consultando sesión continua de %s: %s", creator_name, e)
+        return None
+
     def search_live_topics(self, query: str = "GTA 6 en vivo", max_results: int = 5) -> List[Dict[str, Any]]:
         """Busca emisiones en directo activas mediante búsqueda de YouTube."""
         cmd = [

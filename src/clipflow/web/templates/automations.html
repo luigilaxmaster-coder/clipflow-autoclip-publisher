@@ -136,4 +136,202 @@
       </div>
     </div>
   </section>
+
+  <!-- Live Peak Intelligence 24/7 (Fase 10) -->
+  {% set lp = live_policy or {} %}
+  <section class="card card-padded flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h2 class="card-title">5. Live Peak Intelligence 24/7 (Detector de Picos + Rúbrica 8 Criterios)</h2>
+        <p class="card-subtitle">Vigilancia continua de directos por señales reales (chat, audio, video, semántica), score editorial 0–100 y programación adaptativa sin saturación.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="badge {% if lp.enabled %}badge-success{% else %}badge-warn{% endif %}">
+          {% if lp.enabled %}Motor Habilitado ({{ (lp.mode or 'shadow')|upper }}){% else %}Desactivado (Opt-in · {{ (lp.mode or 'shadow')|upper }}){% endif %}
+        </span>
+      </div>
+    </div>
+
+    <!-- Política Live Peak (PATCH /api/live/policy) -->
+    <form id="livePeakPolicyForm" onsubmit="saveLivePeakPolicy(event)" class="grid-3" style="gap:12px;padding:12px;border-radius:10px;background:var(--bg-input);border:1px solid var(--border-subtle);">
+      <div class="field">
+        <label class="field-label" for="lpEnabled">Estado del Motor</label>
+        <select id="lpEnabled" class="select">
+          <option value="false" {% if not lp.enabled %}selected{% endif %}>Desactivado (Seguro por defecto)</option>
+          <option value="true" {% if lp.enabled %}selected{% endif %}>Habilitado 24/7</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="lpMode">Modo Operativo</label>
+        <select id="lpMode" class="select">
+          <option value="shadow" {% if lp.mode == 'shadow' %}selected{% endif %}>Shadow (Solo puntuar, 0 envíos)</option>
+          <option value="review" {% if lp.mode == 'review' %}selected{% endif %}>Review (Revisión humana)</option>
+          <option value="auto" {% if lp.mode == 'auto' %}selected{% endif %}>Auto (Solo &gt;=90 + Conf &gt;=0.75)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="lpMinScore">Score Mínimo / Confianza</label>
+        <div class="flex items-center gap-2">
+          <input id="lpMinScore" type="number" step="1" min="50" max="100" value="{{ lp.min_auto_score or 90 }}" class="input" style="max-width:90px;">
+          <input id="lpMinConf" type="number" step="0.05" min="0.1" max="1" value="{{ lp.min_auto_confidence or 0.75 }}" class="input" style="max-width:90px;">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="lpMaxPosts">Máx. Autos / Día / Perfil &middot; Gap (min)</label>
+        <div class="flex items-center gap-2">
+          <input id="lpMaxPosts" type="number" min="1" max="20" value="{{ lp.max_auto_posts_per_day_per_profile or 2 }}" class="input" style="max-width:90px;">
+          <input id="lpGapMin" type="number" min="30" max="720" value="{{ lp.minimum_post_gap_minutes or 180 }}" class="input" style="max-width:100px;">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="lpPublicly">Autopublicación Pública</label>
+        <select id="lpPublicly" class="select">
+          <option value="false" {% if not lp.publish_publicly %}selected{% endif %}>Bloqueada (Solo Privado / Draft)</option>
+          <option value="true" {% if lp.publish_publicly %}selected{% endif %}>Permitida (Perfiles aprobados)</option>
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button type="submit" class="btn btn-primary btn-sm" style="width:100%;">Guardar Política Live Peak</button>
+      </div>
+    </form>
+
+    <!-- Registrar Directo 24/7 -->
+    <form id="liveStreamAddForm" onsubmit="addLiveStreamSource(event)" class="flex items-end flex-wrap gap-2">
+      <div class="field" style="flex:1;min-width:180px;">
+        <label class="field-label" for="lsVideoId">Video ID / Stream ID</label>
+        <input id="lsVideoId" type="text" required placeholder="Ej: jfKfPfyJRdk" class="input">
+      </div>
+      <div class="field" style="flex:1;min-width:180px;">
+        <label class="field-label" for="lsChannelId">Canal / Creador</label>
+        <input id="lsChannelId" type="text" required placeholder="Ej: UC..." class="input">
+      </div>
+      <div class="field" style="flex:2;min-width:240px;">
+        <label class="field-label" for="lsUrl">URL del Directo</label>
+        <input id="lsUrl" type="url" required placeholder="https://www.youtube.com/watch?v=..." class="input">
+      </div>
+      <div class="field" style="min-width:150px;">
+        <label class="field-label" for="lsRights">Derechos</label>
+        <select id="lsRights" class="select">
+          <option value="pending">Pendientes</option>
+          <option value="confirmed">Confirmados</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm">+ Monitorear Directo</button>
+    </form>
+
+    <!-- Directos Monitoreados y Clips Rankeados -->
+    <div class="grid-2" style="gap:16px;">
+      <div>
+        <h3 class="text-sm" style="font-weight:700;margin-bottom:8px;">Directos Vigilados ({{ live_streams|length if live_streams else 0 }})</h3>
+        {% if live_streams %}
+          <div class="flex-col gap-2">
+            {% for s in live_streams %}
+              <div class="flex items-center justify-between gap-2 text-xs" style="padding:8px 10px;border-radius:8px;background:var(--bg-input);border:1px solid var(--border-subtle);">
+                <div>
+                  <strong style="color:var(--text-primary);">{{ s.title or s.video_id }}</strong>
+                  <div class="text-muted font-mono">{{ s.platform|upper }} · {{ s.video_id }} · Derechos: {{ s.rights_status }} · {{ s.monitor_mode|upper }}</div>
+                </div>
+                <span class="badge {% if s.live_state == 'LIVE' %}badge-success{% else %}badge-warn{% endif %}">{{ s.live_state }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding:14px;">
+            <p class="text-xs text-muted">No hay directos registrados todavía en Live Peak.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <div>
+        <h3 class="text-sm" style="font-weight:700;margin-bottom:8px;">Candidatos Evaluados por Rúbrica 8 Criterios ({{ live_clips|length if live_clips else 0 }})</h3>
+        {% if live_clips %}
+          <div class="flex-col gap-2">
+            {% for c in live_clips %}
+              <div class="flex items-center justify-between gap-2 text-xs" style="padding:8px 10px;border-radius:8px;background:var(--bg-input);border:1px solid var(--border-subtle);">
+                <div>
+                  <strong style="color:var(--text-primary);">{{ c.title or 'Clip sin título' }}</strong>
+                  <div class="font-mono text-muted">
+                    Nota: <strong>{{ c.rating_10 }}/10</strong> ({{ c.score }}/100 · {{ c.editorial_band }}) · Conf: {{ c.confidence }}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="badge {% if c.review_status == 'APPROVED' or c.review_status == 'SCHEDULED' %}badge-success{% elif c.review_status == 'REVIEW_REQUIRED' %}badge-warn{% else %}badge-danger{% endif %}">{{ c.review_status }}</span>
+                  {% if c.review_status in ['REVIEW_REQUIRED', 'SHADOW', 'PENDING'] %}
+                    <button type="button" onclick="reviewLiveClip('{{ c.id }}', 'approve')" class="btn btn-primary btn-sm" style="padding:2px 8px;">Aprobar</button>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding:14px;">
+            <p class="text-xs text-muted">Aún no hay candidatos Live Peak puntuados.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+<script>
+  async function saveLivePeakPolicy(ev) {
+    ev.preventDefault();
+    const payload = {
+      enabled: document.getElementById('lpEnabled').value === 'true',
+      mode: document.getElementById('lpMode').value,
+      min_auto_score: parseFloat(document.getElementById('lpMinScore').value || '90'),
+      min_auto_confidence: parseFloat(document.getElementById('lpMinConf').value || '0.75'),
+      max_auto_posts_per_day_per_profile: parseInt(document.getElementById('lpMaxPosts').value || '2', 10),
+      minimum_post_gap_minutes: parseInt(document.getElementById('lpGapMin').value || '180', 10),
+      publish_publicly: document.getElementById('lpPublicly').value === 'true'
+    };
+    const res = await window.clipflowFetch('/api/live/policy', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      window.showToast('Política Live Peak actualizada.', 'success');
+      setTimeout(() => window.location.reload(), 600);
+    } else {
+      window.showToast('Error al guardar política Live Peak.', 'error');
+    }
+  }
+
+  async function addLiveStreamSource(ev) {
+    ev.preventDefault();
+    const rights = document.getElementById('lsRights').value;
+    const res = await window.clipflowFetch('/api/live/streams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'youtube',
+        video_id: document.getElementById('lsVideoId').value.trim(),
+        channel_id: document.getElementById('lsChannelId').value.trim(),
+        stream_url: document.getElementById('lsUrl').value.trim(),
+        rights_status: rights,
+        owner_approved: rights === 'confirmed'
+      })
+    });
+    if (res.ok) {
+      window.showToast('Directo registrado en Live Peak.', 'success');
+      setTimeout(() => window.location.reload(), 600);
+    } else {
+      window.showToast('Error registrando directo.', 'error');
+    }
+  }
+
+  async function reviewLiveClip(clipId, action) {
+    const res = await window.clipflowFetch(`/api/live/clips/${clipId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    if (res.ok) {
+      window.showToast(`Candidato actualizado (${action}).`, 'success');
+      setTimeout(() => window.location.reload(), 500);
+    } else {
+      window.showToast('No se pudo actualizar el candidato.', 'error');
+    }
+  }
+</script>
 {% endblock %}

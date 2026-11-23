@@ -38,3 +38,29 @@ publishing:
   require_account_preflight: true
   require_qa_pass: true
   deduplicate_uploads: true
+
+live_peak:
+  enabled: false                 # opt-in explícito
+  mode: shadow                   # shadow | review | auto
+  sample_interval_seconds: 5
+  baseline_minutes: 60
+  prerecord_seconds: 45
+  postrecord_seconds: 30
+  peak_enter: 0.72
+  peak_exit: 0.45
+  peak_enter_consecutive_windows: 2
+  peak_exit_seconds: 20
+  cooldown_seconds: 90
+  max_event_seconds: 240
+  min_auto_score: 90
+  min_auto_confidence: 0.75
+  require_two_signal_families: true
+  min_distinct_chatters_for_chat_only_trigger: 10
+  max_auto_posts_per_day_per_profile: 2
+  minimum_post_gap_minutes: 180
+  min_rights_status: confirmed
+  publish_publicly: false        # aprobación explícita separada por perfil
+  save_raw_chat: false
+  ring_buffer_minutes: 30
+  max_parallel_capture_jobs: 1
+  max_parallel_ai_jobs: 1

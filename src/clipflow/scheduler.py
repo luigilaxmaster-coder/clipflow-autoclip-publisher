@@ -179,3 +179,10 @@ class SchedulerService:
             )
             .all()
         )
+
+
+def live_peak_adaptive(**kwargs: Any) -> Dict[str, Any]:
+    """Estrategia aislada para Live Peak Intelligence (evita ráfagas simultáneas de `build_wave_schedule`)."""
+    from clipflow.live_peak.adaptive_scheduler import build_live_peak_adaptive_slot
+
+    return build_live_peak_adaptive_slot(**kwargs)

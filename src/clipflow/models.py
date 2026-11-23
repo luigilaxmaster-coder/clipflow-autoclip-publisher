@@ -11,9 +11,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -276,3 +278,163 @@ class AuditEvent(Base):
     before_json = Column(Text, nullable=True)
     after_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class LiveSource(Base):
+    __tablename__ = "live_sources"
+    __table_args__ = (
+        UniqueConstraint("platform", "video_id", name="uq_live_source_platform_video"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    platform = Column(String(32), nullable=False, index=True)
+    channel_id = Column(String(128), nullable=False, index=True)
+    channel_name = Column(String(256), nullable=True)
+    video_id = Column(String(128), nullable=False, index=True)
+    stream_url = Column(String(1024), nullable=False)
+    title = Column(String(512), nullable=True)
+    niche_hint = Column(String(256), nullable=True)
+    rights_status = Column(String(32), default="pending", nullable=False)  # confirmed | pending | denied
+    owner_approved = Column(Boolean, default=False, nullable=False)
+    is_paused = Column(Boolean, default=False, nullable=False)
+    monitor_mode = Column(String(32), default="shadow", nullable=False)  # shadow | review | auto
+    live_state = Column(String(32), default="LIVE", nullable=False)  # LIVE | STALLED | RECONNECTING | ENDED | NO_ACCESS | RATE_LIMITED
+    destination_connection_id = Column(String(36), ForeignKey("account_connections.id"), nullable=True)
+    observed_at = Column(DateTime(timezone=True), default=utc_now)
+    heartbeat_at = Column(DateTime(timezone=True), default=utc_now)
+    last_checkpoint = Column(Text, nullable=True)
+    last_chat_cursor = Column(String(256), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class LiveSignalWindow(Base):
+    __tablename__ = "live_signal_windows"
+    __table_args__ = (
+        Index("ix_live_signal_source_start", "source_id", "window_start_utc"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    source_id = Column(String(36), ForeignKey("live_sources.id"), nullable=False, index=True)
+    window_start_utc = Column(DateTime(timezone=True), nullable=False)
+    window_end_utc = Column(DateTime(timezone=True), nullable=False)
+    source_clock = Column(Integer, default=0, nullable=False)  # ms desde inicio del directo o PTS
+    chat_rate = Column(Float, nullable=True)
+    unique_chatters = Column(Integer, nullable=True)
+    audience_delta = Column(Float, nullable=True)
+    concurrent_viewers = Column(Integer, nullable=True)
+    hype_score = Column(Float, default=0.0, nullable=False)
+    confidence = Column(Float, default=0.0, nullable=False)
+    audio_features_json = Column(Text, nullable=True)
+    visual_features_json = Column(Text, nullable=True)
+    semantic_features_json = Column(Text, nullable=True)
+    signals_missing_json = Column(Text, nullable=True)
+    signal_quality_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class LivePeakEvent(Base):
+    __tablename__ = "live_peak_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id", "onset_ms", "end_ms", "detector_version",
+            name="uq_live_peak_event_span",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    source_id = Column(String(36), ForeignKey("live_sources.id"), nullable=False, index=True)
+    onset_ms = Column(Integer, nullable=False)
+    peak_ms = Column(Integer, nullable=False)
+    end_ms = Column(Integer, nullable=False)
+    prerecord_ms = Column(Integer, default=45000, nullable=False)
+    postrecord_ms = Column(Integer, default=30000, nullable=False)
+    has_gap = Column(Boolean, default=False, nullable=False)
+    gap_ms = Column(Integer, default=0, nullable=False)
+    state = Column(String(32), default="CAPTURED", nullable=False, index=True)
+    peak_score = Column(Float, default=0.0, nullable=False)
+    confidence = Column(Float, default=0.0, nullable=False)
+    evidence_json = Column(Text, nullable=True)
+    segment_manifest_path = Column(String(1024), nullable=True)
+    detector_version = Column(String(32), default="v1.0", nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class LiveClipScore(Base):
+    __tablename__ = "live_clip_scores"
+    __table_args__ = (
+        UniqueConstraint("event_id", "render_variant_hash", name="uq_live_clip_event_variant"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clip_candidate_id = Column(String(36), ForeignKey("clip_candidates.id"), nullable=True)
+    event_id = Column(String(36), ForeignKey("live_peak_events.id"), nullable=False, index=True)
+    render_variant_hash = Column(String(64), nullable=False)
+    content_hash = Column(String(64), nullable=True, index=True)
+    title = Column(String(256), nullable=True)
+    video_path = Column(String(1024), nullable=True)
+    duration_sec = Column(Float, nullable=True)
+    niche_tags = Column(String(256), nullable=True)
+    media_qa_passed = Column(Boolean, default=False, nullable=False)
+    score = Column(Float, nullable=False, index=True)
+    confidence = Column(Float, nullable=False)
+    editorial_band = Column(String(32), nullable=False)  # Excepcional | Excelente | Muy bueno | Archivo | Descartar
+    review_status = Column(String(32), default="PENDING", nullable=False, index=True)  # PENDING | APPROVED | REVIEW_REQUIRED | BLOCKED | REJECTED | SCHEDULED
+    score_breakdown_json = Column(Text, nullable=False)
+    reason_codes_json = Column(Text, nullable=False)
+    model_version = Column(String(32), default="rubric-v1.0", nullable=False)
+    evaluated_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class LivePublishDecision(Base):
+    __tablename__ = "live_publish_decisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "clip_id", "destination_connection_id", "platform", "content_hash",
+            name="uq_live_decision_target",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clip_id = Column(String(36), ForeignKey("live_clip_scores.id"), nullable=False, index=True)
+    destination_connection_id = Column(String(36), ForeignKey("account_connections.id"), nullable=True, index=True)
+    platform = Column(String(32), nullable=False)
+    content_hash = Column(String(64), default="", nullable=False)
+    status = Column(String(32), default="PENDING", nullable=False, index=True)  # SHADOW | REVIEW_REQUIRED | SCHEDULED | BLOCKED | REJECTED | DISPATCHED
+    eligible = Column(Boolean, default=False, nullable=False)
+    priority_score = Column(Float, default=0.0, nullable=False)
+    reason = Column(Text, nullable=False)
+    scheduled_at_utc = Column(DateTime(timezone=True), nullable=True)
+    idempotency_key = Column(String(128), nullable=False, unique=True)
+    publish_job_id = Column(String(36), ForeignKey("publish_jobs.id"), nullable=True)
+    policy_snapshot_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ClipOutcome(Base):
+    __tablename__ = "clip_outcomes"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id = Column(String(36), ForeignKey("publish_jobs.id"), nullable=False, index=True)
+    clip_score_id = Column(String(36), ForeignKey("live_clip_scores.id"), nullable=True, index=True)
+    platform = Column(String(32), nullable=False)
+    niche = Column(String(128), nullable=True)
+    model_version = Column(String(32), default="rubric-v1.0", nullable=False)
+    measured_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    metric_name = Column(String(64), nullable=False)  # engaged_views | stayed_to_watch | retention_avg | shares | meaningful_comments | engagement_rate
+    metric_value = Column(Float, nullable=True)
+    denominator = Column(Float, nullable=True)
+    availability = Column(String(32), default="AVAILABLE", nullable=False)  # AVAILABLE | SIN_DATOS | NO_ACCESS
+    source = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class LivePeakPolicyStore(Base):
+    __tablename__ = "live_peak_policies"
+
+    id = Column(String(36), primary_key=True, default="default")
+    policy_json = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

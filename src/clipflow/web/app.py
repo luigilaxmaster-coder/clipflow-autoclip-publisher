@@ -38,13 +38,20 @@ from clipflow.media_library import MediaLibraryService
 from clipflow.media_qa import MediaQA
 from clipflow.metadata import MetadataGenerator
 from clipflow.niche_router import extract_link_context, route_text_to_profiles
+from clipflow.live_peak.learning import OutcomeTracker
+from clipflow.live_peak.service import LivePeakService
 from clipflow.models import (
     AccountConnection,
     AuditEvent,
     AutoReplyRule,
+    ClipOutcome,
     ConnectionStatus,
     InboxComment,
     JobStatus,
+    LiveClipScore,
+    LivePeakEvent,
+    LiveSignalWindow,
+    LiveSource,
     MediaAsset,
     PostDraft,
     Project,
@@ -621,7 +628,29 @@ def inbox_view(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/automations", response_class=HTMLResponse)
 def automations_view(request: Request, db: Session = Depends(get_db)):
-    return _render(request, "automations.html")
+    lp_service = LivePeakService(db)
+    live_policy = lp_service.get_policy()
+    live_streams = [
+        lp_service.serialize_stream(s)
+        for s in db.query(LiveSource).order_by(LiveSource.updated_at.desc()).limit(20).all()
+    ]
+    live_clips = [
+        lp_service.serialize_clip_score(c)
+        for c in db.query(LiveClipScore).order_by(LiveClipScore.evaluated_at.desc()).limit(25).all()
+    ]
+    live_events = db.query(LivePeakEvent).order_by(LivePeakEvent.created_at.desc()).limit(25).all()
+    provider_accounts = ConnectionService(db).list_provider_accounts()
+    return _render(
+        request,
+        "automations.html",
+        {
+            "live_policy": live_policy.model_dump(),
+            "live_streams": live_streams,
+            "live_events": live_events,
+            "live_clips": live_clips,
+            "provider_accounts": provider_accounts,
+        },
+    )
 
 
 @app.get("/queue", response_class=HTMLResponse)
@@ -1697,4 +1726,243 @@ def api_status(db: Session = Depends(get_db)):
         "published_jobs": db.query(PublishJob).filter(PublishJob.status == JobStatus.PUBLISHED).count(),
         "failed_jobs": db.query(PublishJob).filter(PublishJob.status.in_([JobStatus.FAILED, JobStatus.REQUIRES_ACTION, "ACTION_REQUIRED"])).count(),
         "youtube_quota": _youtube_daily_quota_snapshot(db),
+    }
+
+
+# -------------------------------------------------------------
+# API Endpoints: Live Peak Intelligence 24/7 (Fase 10)
+# -------------------------------------------------------------
+class LiveStreamCreatePayload(BaseModel):
+    platform: str = "youtube"
+    channel_id: str
+    video_id: str
+    stream_url: str
+    title: Optional[str] = None
+    channel_name: Optional[str] = None
+    niche_hint: Optional[str] = None
+    rights_status: str = "pending"
+    owner_approved: bool = False
+    monitor_mode: Optional[str] = None
+    destination_connection_id: Optional[str] = None
+
+
+class LiveStreamPatchPayload(BaseModel):
+    is_paused: Optional[bool] = None
+    rights_status: Optional[str] = None
+    owner_approved: Optional[bool] = None
+    monitor_mode: Optional[str] = None
+    live_state: Optional[str] = None
+    destination_connection_id: Optional[str] = None
+    niche_hint: Optional[str] = None
+    title: Optional[str] = None
+
+
+class LiveSignalIngestPayload(BaseModel):
+    windows: List[Dict[str, Any]]
+
+
+class LiveEvaluateEventPayload(BaseModel):
+    title: str
+    dimensions: Dict[str, Any]
+    video_path: Optional[str] = None
+    duration_sec: Optional[float] = None
+    niche_tags: Optional[str] = None
+    media_qa_passed: Optional[bool] = None
+    transcript_coherent: bool = True
+    spam_chat_only: bool = False
+    destination_connection_id: Optional[str] = None
+    platform: str = "youtube"
+    allow_immediate_urgent: bool = False
+
+
+class LiveClipReviewPayload(BaseModel):
+    action: str  # approve | reject | block
+    notes: str = ""
+
+
+class LiveClipRescorePayload(BaseModel):
+    custom_weights: Optional[Dict[str, float]] = None
+    model_version: str = "rubric-v1.1"
+
+
+class LiveOutcomePayload(BaseModel):
+    job_id: str
+    platform: str
+    metric_name: str
+    metric_value: Optional[float] = None
+    denominator: Optional[float] = None
+    clip_score_id: Optional[str] = None
+    niche: Optional[str] = None
+    source: str = "youtube_analytics"
+
+
+@app.get("/api/live/streams")
+def api_live_streams(db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    rows = db.query(LiveSource).order_by(LiveSource.updated_at.desc()).all()
+    return {"streams": [svc.serialize_stream(r) for r in rows]}
+
+
+@app.post("/api/live/streams")
+def api_live_stream_create(payload: LiveStreamCreatePayload, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    row = svc.upsert_stream(**payload.model_dump())
+    return {"ok": True, "stream": svc.serialize_stream(row)}
+
+
+@app.patch("/api/live/streams/{stream_id}")
+def api_live_stream_patch(stream_id: str, payload: LiveStreamPatchPayload, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    try:
+        row = svc.patch_stream(stream_id, payload.model_dump(exclude_none=True))
+        return {"ok": True, "stream": svc.serialize_stream(row)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/live/streams/{stream_id}/signals")
+def api_live_stream_ingest_signals(stream_id: str, payload: LiveSignalIngestPayload, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    try:
+        return svc.ingest_signal_windows(stream_id, payload.windows)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/live/streams/{stream_id}/signals")
+def api_live_stream_signals(stream_id: str, offset: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    safe_limit = max(1, min(500, limit))
+    q = (
+        db.query(LiveSignalWindow)
+        .filter(LiveSignalWindow.source_id == stream_id)
+        .order_by(LiveSignalWindow.source_clock.asc())
+    )
+    total = q.count()
+    rows = q.offset(max(0, offset)).limit(safe_limit).all()
+    return {
+        "total": total,
+        "offset": max(0, offset),
+        "limit": safe_limit,
+        "signals": [
+            {
+                "id": w.id,
+                "source_clock_ms": w.source_clock,
+                "hype_score": w.hype_score,
+                "confidence": w.confidence,
+                "chat_rate": w.chat_rate,
+                "unique_chatters": w.unique_chatters,
+                "concurrent_viewers": w.concurrent_viewers,
+                "missing_signals": json.loads(w.signals_missing_json or "[]"),
+                "quality": json.loads(w.signal_quality_json or "{}"),
+                "window_start_utc": w.window_start_utc.isoformat() if w.window_start_utc else None,
+            }
+            for w in rows
+        ],
+    }
+
+
+@app.get("/api/live/streams/{stream_id}/events")
+def api_live_stream_events(stream_id: str, offset: int = 0, limit: int = 50, db: Session = Depends(get_db)):
+    safe_limit = max(1, min(200, limit))
+    q = (
+        db.query(LivePeakEvent)
+        .filter(LivePeakEvent.source_id == stream_id)
+        .order_by(LivePeakEvent.onset_ms.asc())
+    )
+    total = q.count()
+    rows = q.offset(max(0, offset)).limit(safe_limit).all()
+    return {
+        "total": total,
+        "events": [
+            {
+                "id": ev.id,
+                "source_id": ev.source_id,
+                "onset_ms": ev.onset_ms,
+                "peak_ms": ev.peak_ms,
+                "end_ms": ev.end_ms,
+                "state": ev.state,
+                "peak_score": ev.peak_score,
+                "confidence": ev.confidence,
+                "has_gap": bool(ev.has_gap),
+                "gap_ms": ev.gap_ms,
+                "detector_version": ev.detector_version,
+                "evidence": json.loads(ev.evidence_json or "{}"),
+            }
+            for ev in rows
+        ],
+    }
+
+
+@app.post("/api/live/events/{event_id}/evaluate")
+def api_live_event_evaluate(event_id: str, payload: LiveEvaluateEventPayload, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    try:
+        res = svc.score_and_evaluate_clip(event_id=event_id, **payload.model_dump())
+        return {"ok": True, "clip": res}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/live/clips")
+def api_live_clips(status: Optional[str] = None, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    q = db.query(LiveClipScore).order_by(LiveClipScore.score.desc(), LiveClipScore.evaluated_at.desc())
+    if status:
+        q = q.filter(LiveClipScore.review_status == status.upper())
+    rows = q.all()
+    return {"clips": [svc.serialize_clip_score(r) for r in rows]}
+
+
+@app.post("/api/live/clips/{clip_id}/review")
+def api_live_clip_review(clip_id: str, payload: LiveClipReviewPayload, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    try:
+        res = svc.review_clip(clip_id, action=payload.action, notes=payload.notes)
+        return {"ok": True, "clip": res}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/live/clips/{clip_id}/rescore")
+def api_live_clip_rescore(clip_id: str, payload: LiveClipRescorePayload, db: Session = Depends(get_db)):
+    svc = LivePeakService(db)
+    try:
+        res = svc.rescore_clip(
+            clip_id,
+            custom_weights=payload.custom_weights,
+            model_version=payload.model_version,
+        )
+        return {"ok": True, "clip": res}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/live/policy")
+def api_live_policy_get(db: Session = Depends(get_db)):
+    return {"policy": LivePeakService(db).get_policy().model_dump()}
+
+
+@app.patch("/api/live/policy")
+def api_live_policy_patch(payload: Dict[str, Any], db: Session = Depends(get_db)):
+    updated = LivePeakService(db).update_policy(payload)
+    return {"ok": True, "policy": updated.model_dump()}
+
+
+@app.post("/api/live/outcomes")
+def api_live_outcome_create(payload: LiveOutcomePayload, db: Session = Depends(get_db)):
+    tracker = OutcomeTracker(db)
+    row = tracker.record_outcome(**payload.model_dump())
+    return {
+        "ok": True,
+        "outcome_id": row.id,
+        "availability": row.availability,
+    }
+
+
+@app.get("/api/live/outcomes")
+def api_live_outcome_summary(niche: Optional[str] = None, db: Session = Depends(get_db)):
+    tracker = OutcomeTracker(db)
+    return {
+        "summary": tracker.summarize_by_niche(niche=niche),
+        "calibration_preview": tracker.propose_calibrated_weights(niche=niche),
     }

@@ -394,6 +394,26 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_live_peak_worker(args: argparse.Namespace) -> int:
+    """Ejecuta el monitor continuo 24/7 de Live Peak Intelligence cuando está habilitado."""
+    import time
+    from clipflow.live_peak.service import LivePeakService
+
+    init_db()
+    print("Iniciando worker Live Peak Intelligence 24/7 (Presiona Ctrl+C para detener)...")
+    try:
+        while True:
+            with get_db_context() as db:
+                res = LivePeakService(db).run_worker_tick()
+            if args.once:
+                print(json.dumps(res, ensure_ascii=False))
+                break
+            time.sleep(max(1.0, float(args.interval)))
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Deteniendo live-peak-worker limpiamente...")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """Genera informe de proyecto en formato JSON o texto plano."""
     return cmd_status(args)
@@ -461,6 +481,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_work.add_argument("--once", action="store_true", help="Procesa un solo ciclo y finaliza.")
     p_work.add_argument("--mock", action="store_true", help="Ejecuta en modo simulado sin credenciales.")
 
+    # live-peak-worker
+    p_lp = sub.add_parser("live-peak-worker", help="Ejecuta el monitor Live Peak Intelligence 24/7 (opt-in).")
+    p_lp.add_argument("--interval", type=float, default=5.0, help="Intervalo de muestreo en segundos.")
+    p_lp.add_argument("--once", action="store_true", help="Procesa un solo ciclo y finaliza.")
+
     # report
     p_rep = sub.add_parser("report", help="Genera reporte en JSON.")
     p_rep.add_argument("project_id", help="ID del proyecto.")
@@ -490,6 +515,7 @@ def main() -> int:
         "schedule": cmd_schedule,
         "status": cmd_status,
         "worker": cmd_worker,
+        "live-peak-worker": cmd_live_peak_worker,
         "report": cmd_report,
         "web": cmd_web,
     }

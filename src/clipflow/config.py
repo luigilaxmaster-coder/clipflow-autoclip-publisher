@@ -61,11 +61,39 @@ class PublishingConfig(BaseModel):
     deduplicate_uploads: bool = True
 
 
+class LivePeakConfig(BaseModel):
+    enabled: bool = False
+    mode: str = "shadow"  # shadow | review | auto
+    sample_interval_seconds: int = 5
+    baseline_minutes: int = 60
+    prerecord_seconds: int = 45
+    postrecord_seconds: int = 30
+    peak_enter: float = 0.72
+    peak_exit: float = 0.45
+    peak_enter_consecutive_windows: int = 2
+    peak_exit_seconds: int = 20
+    cooldown_seconds: int = 90
+    max_event_seconds: int = 240
+    min_auto_score: float = 90.0
+    min_auto_confidence: float = 0.75
+    require_two_signal_families: bool = True
+    min_distinct_chatters_for_chat_only_trigger: int = 10
+    max_auto_posts_per_day_per_profile: int = 2
+    minimum_post_gap_minutes: int = 180
+    min_rights_status: str = "confirmed"
+    publish_publicly: bool = False
+    save_raw_chat: bool = False
+    ring_buffer_minutes: int = 30
+    max_parallel_capture_jobs: int = 1
+    max_parallel_ai_jobs: int = 1
+
+
 class Settings(BaseModel):
     app: AppConfig = Field(default_factory=AppConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
+    live_peak: LivePeakConfig = Field(default_factory=LivePeakConfig)
 
     @classmethod
     def load(cls, config_path: Optional[str | Path] = None) -> Settings:

@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from clipflow.config import get_settings
 from clipflow.db import init_db
 from clipflow.security import get_owner_token
 
@@ -125,6 +126,7 @@ def build_managed_processes(
     worker_interval: float = 5.0,
     web_only: bool = False,
     worker_only: bool = False,
+    enable_live_peak: Optional[bool] = None,
 ) -> List[ManagedProcess]:
     procs: List[ManagedProcess] = []
     if not worker_only:
@@ -157,6 +159,21 @@ def build_managed_processes(
                 ],
             )
         )
+        lp_enabled = get_settings().live_peak.enabled if enable_live_peak is None else bool(enable_live_peak)
+        if lp_enabled:
+            procs.append(
+                ManagedProcess(
+                    name="live-peak-worker",
+                    cmd=[
+                        python_exe,
+                        "-m",
+                        "clipflow.cli",
+                        "live-peak-worker",
+                        "--interval",
+                        str(worker_interval),
+                    ],
+                )
+            )
     return procs
 
 

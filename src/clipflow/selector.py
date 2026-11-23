@@ -126,3 +126,30 @@ class ClipSelector:
                 out_candidates.append(candidate)
 
         return out_candidates
+
+    def select_scored_candidates_100(
+        self,
+        raw_candidates: List[Dict[str, Any]],
+        project_id: str,
+        *,
+        min_score_100: float = 90.0,
+        session_cap: int = 100,
+    ) -> List[ClipCandidate]:
+        """
+        Adaptador para candidatos continuos de 24h evaluados con `clip_score` 0-100:
+        normaliza a 0-1 sin imponer el límite artificial de 10 clips por sesión larga.
+        """
+        normalized: List[Dict[str, Any]] = []
+        for item in raw_candidates:
+            raw_score = float(item.get("clip_score", item.get("score", 0.0)))
+            norm = round(raw_score / 100.0, 4) if raw_score > 1.0 else raw_score
+            normalized.append({**item, "score": norm})
+
+        prev_max, prev_min = self.max_clips, self.min_score
+        try:
+            self.max_clips = max(1, int(session_cap))
+            self.min_score = max(0.0, min(1.0, float(min_score_100) / 100.0))
+            return self.select_candidates(normalized, project_id=project_id)
+        finally:
+            self.max_clips = prev_max
+            self.min_score = prev_min
