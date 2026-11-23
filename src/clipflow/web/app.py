@@ -54,6 +54,7 @@ from clipflow.publishing.native_youtube import NativeYouTubePublisher
 from clipflow.publishing.postiz import PostizPublisher
 from clipflow.publishing.unified import UnifiedPublisher
 from clipflow.queue import PublishQueueWorker
+from clipflow.scheduler import build_wave_schedule
 from clipflow.security import (
     COOKIE_NAME,
     CSRF_COOKIE_NAME,
@@ -1349,6 +1350,112 @@ def api_publisher_dispatch(payload: DispatchRequest, db: Session = Depends(get_d
             logger.warning("Fallo al procesar inmediatamente con worker: %s", redact_secrets(str(e)))
 
     return {"ok": True, "jobs_created": jobs_created, "job_ids": created_ids}
+
+
+class WaveDispatchRequest(BaseModel):
+    asset_ids: List[str]
+    platform: str = "youtube"
+    connection_id: Optional[str] = None
+    visibility: str = "private"
+
+
+@app.post("/api/automation/wave-dispatch")
+def api_automation_wave_dispatch(payload: WaveDispatchRequest, db: Session = Depends(get_db)):
+    """
+    Automatización en 2 Olas:
+    Publica ahora la mitad posible de la cuota diaria de la cuenta y programa la otra mitad
+    automáticamente en los mejores horarios pico de America/Santo_Domingo.
+    """
+    if not payload.asset_ids:
+        raise HTTPException(status_code=400, detail="Debe indicarse al menos un asset_id.")
+
+    plat = payload.platform.lower().strip()
+    conn_svc = ConnectionService(db)
+    conn = conn_svc.get_connection(plat, account_ref=payload.connection_id)
+    if not conn:
+        raise HTTPException(status_code=400, detail=f"No existe perfil conectado para {plat}.")
+
+    acc_info = conn_svc._serialize_account(conn)
+    assets = db.query(MediaAsset).filter(MediaAsset.id.in_(payload.asset_ids)).all()
+    assets_map = {a.id: a for a in assets}
+    ordered_assets = [assets_map[aid] for aid in payload.asset_ids if aid in assets_map]
+    if not ordered_assets:
+        raise HTTPException(status_code=404, detail="No se encontraron los clips solicitados.")
+
+    plan = build_wave_schedule(
+        total_clips=len(ordered_assets),
+        remaining_today=acc_info["remaining_today"],
+        daily_limit=acc_info["daily_upload_limit"],
+    )
+
+    vis = (payload.visibility or "private").strip()
+    if plat == "tiktok" and vis == "private":
+        vis = "SELF_ONLY"
+
+    created_summary = []
+    for asset, slot in zip(ordered_assets, plan):
+        render = db.query(Render).filter(Render.id == asset.render_id).first() if asset.render_id else None
+        if not render:
+            proj = db.query(Project).first()
+            if not proj:
+                src = Source(source_kind="file", canonical_source=asset.file_path, local_path=asset.file_path)
+                db.add(src)
+                db.flush()
+                proj = Project(source_id=src.id, workflow_status="COMPLETED")
+                db.add(proj)
+                db.flush()
+            render = Render(project_id=proj.id, target_platform=plat, video_path=asset.file_path, qa_status="PASSED")
+            db.add(render)
+            db.flush()
+
+        draft = PostDraft(
+            render_id=render.id,
+            platform=plat,
+            account_id=conn.id,
+            title=asset.title[:100] if plat == "youtube" else asset.title,
+            description=f"{asset.title}\n\n#Shorts",
+            visibility=vis,
+            approved_at=utc_now(),
+            approval_actor="wave_automation",
+        )
+        db.add(draft)
+        db.flush()
+
+        job = PublishJob(
+            post_draft_id=draft.id,
+            idempotency_key=f"wave-{draft.id}-{uuid.uuid4().hex[:8]}",
+            scheduled_at_utc=slot["scheduled_at_utc"],
+            status=slot["status"],
+        )
+        db.add(job)
+        db.flush()
+        created_summary.append({
+            "job_id": job.id,
+            "asset_id": asset.id,
+            "title": draft.title,
+            "wave": slot["wave"],
+            "status": job.status,
+            "scheduled_local": slot["scheduled_local"],
+            "label": slot["label"],
+        })
+
+    record_audit(
+        db,
+        "AccountConnection",
+        conn.id,
+        "wave_automation",
+        "wave_dispatch",
+        None,
+        {"count": len(created_summary), "platform": plat},
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "account_name": acc_info["account_name"],
+        "remaining_today_before": acc_info["remaining_today"],
+        "daily_limit": acc_info["daily_upload_limit"],
+        "jobs": created_summary,
+    }
 
 
 class RescheduleRequest(BaseModel):

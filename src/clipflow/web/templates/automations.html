@@ -103,4 +103,37 @@
       </div>
     </div>
   </section>
+
+  <!-- Flow 4: Smart 2-Wave Batch Scheduling -->
+  <section class="card card-padded flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <div>
+        <h2 class="card-title">4. Distribución Inteligente en 2 Olas (Mitad Ahora + Mitad Horario Pico)</h2>
+        <p class="card-subtitle">Publica inmediatamente la mitad posible de la cuota diaria de cada canal y programa la otra mitad en las mejores franjas horarias (18:30, 19:30, 20:30 America/Santo_Domingo)</p>
+      </div>
+      <span class="badge badge-indigo">Regla Activa · Endpoint /api/automation/wave-dispatch</span>
+    </div>
+    <div class="flow-chain">
+      <div class="flow-node">
+        <div class="flow-node-tag">1. Consulta Cupo</div>
+        <strong>Cuota por Perfil</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Lee remaining_today y daily_upload_limit del canal</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">2. Ola 1 (Inmediata)</div>
+        <strong>50% del lote ahora</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Se encola como QUEUED para despacho inmediato</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">3. Ola 2 (Horario Pico)</div>
+        <strong>50% en horas pico</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Programado (SCHEDULED) a las 18:30, 19:30 y 20:30 locales</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-tag">4. Excedentes</div>
+        <strong>Días siguientes</strong>
+        <div class="text-xs text-muted" style="margin-top:4px;">Si el lote excede la cuota diaria, avanza al día siguiente sin saturar</div>
+      </div>
+    </div>
+  </section>
 {% endblock %}

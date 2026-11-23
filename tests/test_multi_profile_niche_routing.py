@@ -245,3 +245,69 @@ def test_web_multi_profile_api_and_niche_resolve(monkeypatch, tmp_path: Path, ve
     pub_html = client.get("/publisher", headers=headers).text
     assert "Canal Noticias IA" in pub_html
     assert "Detectar Nicho Automático" in pub_html
+
+
+def test_two_wave_batch_schedule_and_endpoint(monkeypatch, tmp_path: Path, vertical_video_path: Path):
+    from datetime import datetime, timezone
+    from clipflow.models import MediaAsset
+    from clipflow.scheduler import build_wave_schedule
+
+    # 1. Prueba matemática del planificador 2-Wave (09:00 AM local = 13:00 UTC, 6 clips, cuota 6)
+    now_utc = datetime(2026, 11, 23, 13, 0, 0, tzinfo=timezone.utc)
+    plan = build_wave_schedule(total_clips=6, remaining_today=6, daily_limit=6, now_utc=now_utc)
+    assert len(plan) == 6
+    assert [p["status"] for p in plan] == ["QUEUED", "QUEUED", "QUEUED", "SCHEDULED", "SCHEDULED", "SCHEDULED"]
+    assert plan[3]["scheduled_local"] == "2026-11-23 18:30"
+    assert plan[4]["scheduled_local"] == "2026-11-23 19:30"
+    assert plan[5]["scheduled_local"] == "2026-11-23 20:30"
+
+    # 2. Excedente sobre cuota diaria pasa al día siguiente
+    plan_over = build_wave_schedule(total_clips=8, remaining_today=4, daily_limit=6, now_utc=now_utc)
+    assert len(plan_over) == 8
+    assert sum(1 for p in plan_over if p["wave"] == 1) == 2
+    assert sum(1 for p in plan_over if p["wave"] == 2) == 2
+    assert sum(1 for p in plan_over if p["wave"] >= 3) == 4
+
+    # 3. Endpoint /api/automation/wave-dispatch
+    token = "wave-owner-token-1234567890"
+    monkeypatch.setenv("OWNER_TOKEN", token)
+    db_file = tmp_path / "wave_dispatch.db"
+    monkeypatch.setenv("CLIPFLOW_DATABASE_URL", f"sqlite:///{db_file.as_posix()}")
+    monkeypatch.setattr("clipflow.config._active_settings", None)
+    monkeypatch.setattr("clipflow.db._engine", None)
+    monkeypatch.setattr("clipflow.db._SessionFactory", None)
+    init_db()
+
+    sess = get_session()
+    try:
+        svc = ConnectionService(sess)
+        saved = svc.save_connection(
+            provider_id="youtube",
+            account_name="Canal Wave",
+            credentials={"client_id": "cid-w", "client_secret": "sec-w", "access_token": "tok-w"},
+            test_now=False,
+            daily_upload_limit=6,
+        )
+        conn_id = saved["connection_id"]
+        asset_ids = []
+        for idx in range(4):
+            a = MediaAsset(title=f"Wave Clip {idx+1}", file_path=str(vertical_video_path), file_type="video")
+            sess.add(a)
+            sess.flush()
+            asset_ids.append(a.id)
+        sess.commit()
+    finally:
+        sess.close()
+
+    client = TestClient(app)
+    res = client.post(
+        "/api/automation/wave-dispatch",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"asset_ids": asset_ids, "platform": "youtube", "connection_id": conn_id, "visibility": "private"},
+    )
+    assert res.status_code == 200
+    jobs = res.json()["jobs"]
+    assert len(jobs) == 4
+    assert sum(1 for j in jobs if j["status"] == "QUEUED") == 2
+    assert sum(1 for j in jobs if j["status"] == "SCHEDULED") == 2
+
