@@ -46,6 +46,7 @@ def _ensure_schema_columns(engine) -> None:
         "account_connections": [
             ("niche_tags", "VARCHAR(512)"),
             ("daily_upload_limit", "INTEGER DEFAULT 6"),
+            ("quota_blocked_until", "DATETIME"),
             ("is_default", "BOOLEAN DEFAULT 0"),
         ],
         "oauth_states": [

@@ -86,11 +86,35 @@
                 <div class="font-mono text-xs text-muted">ID: {{ acc.account_id }}</div>
               {% endif %}
 
-              <div class="flex items-center justify-between text-xs" style="padding:6px 8px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border-subtle);">
-                <span class="text-muted">Cupo 24h de este perfil:</span>
-                <strong class="font-mono {% if acc.remaining_today == 0 %}text-danger{% endif %}" style="color:var(--text-primary);">
-                  {{ acc.used_today }} / {{ acc.daily_upload_limit }} ({{ acc.remaining_today }} disp.)
-                </strong>
+              <div class="flex-col gap-1 text-xs" style="padding:8px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border-subtle);">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-muted">Cupo 24h de este perfil:</span>
+                  <strong class="font-mono {% if acc.remaining_today == 0 %}text-danger{% endif %}" style="color:var(--text-primary);">
+                    {{ acc.used_today }} / {{ acc.daily_upload_limit }} ({{ acc.remaining_today }} disp.)
+                  </strong>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-muted">Próxima actualización:</span>
+                  <strong class="font-mono {% if acc.remaining_today == 0 %}text-warn{% else %}text-success{% endif %}">
+                    {% if acc.next_quota_reset_at %}
+                      {{ acc.next_quota_reset_local }} (<span data-countdown-at="{{ acc.next_quota_reset_at }}">{{ acc.next_quota_reset_countdown }}</span>)
+                    {% else %}
+                      Disponible ahora
+                    {% endif %}
+                  </strong>
+                </div>
+                {% if acc.used_today > 1 and acc.full_quota_reset_at %}
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-muted">Cupo 100% libre:</span>
+                    <span class="font-mono text-muted">{{ acc.full_quota_reset_local }}</span>
+                  </div>
+                {% endif %}
+                {% if acc.provider_id == 'youtube' %}
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-muted">Reset API Google:</span>
+                    <span class="font-mono text-muted">{{ acc.api_reset_local }} (<span data-countdown-at="{{ acc.api_reset_at or '' }}">{{ acc.api_reset_countdown }}</span>)</span>
+                  </div>
+                {% endif %}
               </div>
 
               <div class="flex flex-wrap gap-1">

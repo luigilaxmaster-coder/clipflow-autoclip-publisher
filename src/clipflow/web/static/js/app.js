@@ -142,10 +142,31 @@
     });
   }
 
+  function updateQuotaCountdowns() {
+    const nowMs = Date.now();
+    document.querySelectorAll("[data-countdown-at]").forEach((el) => {
+      const iso = el.getAttribute("data-countdown-at");
+      if (!iso) return;
+      const targetMs = Date.parse(iso);
+      if (Number.isNaN(targetMs)) return;
+      const diffSec = Math.max(0, Math.floor((targetMs - nowMs) / 1000));
+      if (diffSec <= 0) {
+        el.textContent = "Ahora";
+        return;
+      }
+      const totalMins = Math.ceil(diffSec / 60);
+      const hours = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      el.textContent = hours > 0 ? `en ${hours}h ${String(mins).padStart(2, "0")}m` : `en ${mins}m`;
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     initSidebar();
     initKeyboard();
     refreshLiveHealth();
+    updateQuotaCountdowns();
     setInterval(refreshLiveHealth, 30000);
+    setInterval(updateQuotaCountdowns, 30000);
   });
 })();

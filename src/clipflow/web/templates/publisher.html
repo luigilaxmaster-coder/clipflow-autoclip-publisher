@@ -99,13 +99,17 @@
               {% if p_accounts %}
                 <div class="field">
                   <label for="accountSelect_{{ pid }}" class="field-label">{{ pname }} — Canal / Perfil</label>
-                  <select id="accountSelect_{{ pid }}" class="select account-selector" data-platform="{{ pid }}">
+                  <select id="accountSelect_{{ pid }}" class="select account-selector" data-platform="{{ pid }}" onchange="syncAccountQuotaHint('{{ pid }}')">
                     {% for acc in p_accounts %}
-                      <option value="{{ acc.connection_id }}" {% if acc.is_default %}selected{% endif %}>
+                      <option value="{{ acc.connection_id }}"
+                              data-reset-label="{{ acc.quota_reset_label }}"
+                              data-api-reset="{{ acc.api_reset_local }}"
+                              {% if acc.is_default %}selected{% endif %}>
                         {{ acc.account_name }} ({{ acc.used_today }}/{{ acc.daily_upload_limit }} hoy){% if acc.niche_tags %} · [{{ acc.niche_tags }}]{% endif %}
                       </option>
                     {% endfor %}
                   </select>
+                  <span id="accountQuotaHint_{{ pid }}" class="field-hint font-mono"></span>
                 </div>
               {% endif %}
             {% endfor %}
@@ -340,8 +344,11 @@
     for (const [plat, info] of Object.entries(data.routes || {})) {
       if (info.found && info.connection_id) {
         const sel = document.getElementById(`accountSelect_${plat}`);
-        if (sel) sel.value = info.connection_id;
-        notes.push(`${plat.toUpperCase()}: ${info.reason} (${info.remaining_today}/${info.daily_upload_limit} disp.)`);
+        if (sel) {
+          sel.value = info.connection_id;
+          syncAccountQuotaHint(plat);
+        }
+        notes.push(`${plat.toUpperCase()}: ${info.reason} (${info.quota_reset_label || (info.remaining_today + '/' + info.daily_upload_limit + ' disp.')})`);
       }
     }
     document.getElementById('nicheMatchNote').textContent = notes.join(' | ');
@@ -383,9 +390,23 @@
     }
   }
 
+  function syncAccountQuotaHint(pid) {
+    const sel = document.getElementById(`accountSelect_${pid}`);
+    const hint = document.getElementById(`accountQuotaHint_${pid}`);
+    if (!sel || !hint) return;
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    const resetLabel = opt.dataset.resetLabel || '';
+    const apiReset = opt.dataset.apiReset || '';
+    hint.textContent = pid === 'youtube' && apiReset
+      ? `${resetLabel} · Google API: ${apiReset}`
+      : resetLabel;
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     syncPreview();
     updateNetworkWarnings();
+    document.querySelectorAll('.account-selector').forEach(sel => syncAccountQuotaHint(sel.dataset.platform));
   });
 </script>
 {% endblock %}

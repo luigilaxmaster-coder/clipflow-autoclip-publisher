@@ -10,6 +10,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+import pytz
 from sqlalchemy.orm import Session
 
 from clipflow.connections.crypto import decrypt_credentials, encrypt_credentials
@@ -41,13 +42,77 @@ def _parse_niche_tags(raw: Optional[str]) -> List[str]:
     return [t.strip() for t in re.split(r"[,;\n]+", raw) if t.strip()]
 
 
+def ensure_utc(dt: datetime) -> datetime:
+    """Garantiza que un datetime sea consciente en UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def next_youtube_project_reset_utc(now_utc: Optional[datetime] = None) -> datetime:
+    """Calcula la próxima medianoche hora del Pacífico (00:00 PT) en UTC, cuando Google reinicia la cuota diaria de YouTube API."""
+    ref = ensure_utc(now_utc or utc_now())
+    pt_tz = pytz.timezone("America/Los_Angeles")
+    now_pt = ref.astimezone(pt_tz)
+    next_midnight_pt = pt_tz.localize(
+        datetime(now_pt.year, now_pt.month, now_pt.day, 0, 0, 0) + timedelta(days=1)
+    )
+    return next_midnight_pt.astimezone(timezone.utc)
+
+
+def format_reset_window(
+    target_utc: datetime,
+    now_utc: Optional[datetime] = None,
+    tz_name: str = "America/Santo_Domingo",
+) -> Dict[str, Any]:
+    """Formatea un instante UTC de reinicio a hora local legible y cuenta regresiva."""
+    ref = ensure_utc(now_utc or utc_now())
+    tgt = ensure_utc(target_utc)
+    try:
+        local_tz = pytz.timezone(tz_name)
+    except Exception:
+        local_tz = pytz.timezone("America/Santo_Domingo")
+
+    now_local = ref.astimezone(local_tz)
+    tgt_local = tgt.astimezone(local_tz)
+    day_diff = (tgt_local.date() - now_local.date()).days
+    time_str = tgt_local.strftime("%H:%M")
+    if day_diff == 0:
+        local_label = f"Hoy {time_str} RD"
+    elif day_diff == 1:
+        local_label = f"Mañana {time_str} RD"
+    else:
+        local_label = f"{tgt_local.strftime('%d/%m %H:%M')} RD"
+
+    total_seconds = max(0, int((tgt - ref).total_seconds()))
+    minutes_remaining = (total_seconds + 59) // 60 if total_seconds > 0 else 0
+    if minutes_remaining <= 0:
+        countdown_label = "Ahora"
+    else:
+        hours, mins = divmod(minutes_remaining, 60)
+        if hours > 0:
+            countdown_label = f"en {hours}h {mins:02d}m"
+        else:
+            countdown_label = f"en {mins}m"
+
+    return {
+        "at_utc": tgt.isoformat(),
+        "local_label": local_label,
+        "countdown_label": countdown_label,
+        "minutes_remaining": minutes_remaining,
+    }
+
+
 class ConnectionService:
     def __init__(self, db: Session):
         self.db = db
 
-    def count_uploads_last_24h(self, conn: AccountConnection) -> int:
-        """Cuenta subidas reales de los últimos 24h atribuidas a esta cuenta/canal."""
-        since = utc_now() - timedelta(hours=24)
+    def _recent_upload_jobs_24h(
+        self, conn: AccountConnection, now: Optional[datetime] = None
+    ) -> List[PublishJob]:
+        """Devuelve los trabajos de subida de las últimas 24h atribuidos a esta cuenta/canal."""
+        ref = ensure_utc(now or utc_now())
+        since = ref - timedelta(hours=24)
         total_for_provider = (
             self.db.query(AccountConnection)
             .filter(AccountConnection.provider_id == conn.provider_id)
@@ -65,17 +130,103 @@ class ConnectionService:
             )
             .all()
         )
-        count = 0
+        matched: List[PublishJob] = []
         refs = {r for r in (conn.id, conn.account_id, conn.account_name) if r}
         for j in jobs:
             draft_acc = j.post_draft.account_id if j.post_draft else None
             if j.remote_channel_id and conn.account_id and j.remote_channel_id == conn.account_id:
-                count += 1
+                matched.append(j)
             elif draft_acc and draft_acc in refs:
-                count += 1
+                matched.append(j)
             elif total_for_provider == 1 and not j.remote_channel_id and draft_acc in (None, "", "default", "main"):
-                count += 1
-        return count
+                matched.append(j)
+        return matched
+
+    def count_uploads_last_24h(self, conn: AccountConnection, now: Optional[datetime] = None) -> int:
+        """Cuenta subidas reales de los últimos 24h atribuidas a esta cuenta/canal."""
+        return len(self._recent_upload_jobs_24h(conn, now=now))
+
+    def get_quota_reset_info(
+        self, conn: AccountConnection, now: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """Calcula disponibilidad actual y hora exacta de actualización de cupo/API para esta cuenta."""
+        ref = ensure_utc(now or utc_now())
+        limit = max(1, int(conn.daily_upload_limit or 6))
+        recent_jobs = self._recent_upload_jobs_24h(conn, now=ref)
+        used_today = len(recent_jobs)
+
+        blocked_until = ensure_utc(conn.quota_blocked_until) if conn.quota_blocked_until else None
+        is_blocked_remote = bool(blocked_until and blocked_until > ref)
+        remaining_today = 0 if is_blocked_remote else max(0, limit - used_today)
+
+        upload_times = sorted(
+            ensure_utc(j.updated_at or j.created_at)
+            for j in recent_jobs
+            if (j.updated_at or j.created_at) is not None
+        )
+
+        next_slot_utc: Optional[datetime] = None
+        full_reset_utc: Optional[datetime] = None
+        if upload_times:
+            next_slot_utc = max(ref, upload_times[0] + timedelta(hours=24))
+            full_reset_utc = max(ref, upload_times[-1] + timedelta(hours=24))
+
+        if is_blocked_remote and blocked_until is not None:
+            next_slot_utc = blocked_until
+            if full_reset_utc is None or blocked_until > full_reset_utc:
+                full_reset_utc = blocked_until
+
+        next_fmt = format_reset_window(next_slot_utc, now_utc=ref) if next_slot_utc else None
+        full_fmt = format_reset_window(full_reset_utc, now_utc=ref) if full_reset_utc else None
+
+        is_youtube = conn.provider_id == "youtube"
+        yt_reset_utc = next_youtube_project_reset_utc(ref) if is_youtube else None
+        yt_fmt = format_reset_window(yt_reset_utc, now_utc=ref) if yt_reset_utc else None
+
+        if is_youtube and yt_fmt:
+            api_reset_at = yt_fmt["at_utc"]
+            api_reset_local = f"{yt_fmt['local_label']} (00:00 PT)"
+            api_reset_countdown = yt_fmt["countdown_label"]
+        elif next_fmt:
+            api_reset_at = next_fmt["at_utc"]
+            api_reset_local = next_fmt["local_label"]
+            api_reset_countdown = next_fmt["countdown_label"]
+        else:
+            api_reset_at = None
+            api_reset_local = "Ventana móvil 24h libre"
+            api_reset_countdown = "Ahora"
+
+        if is_blocked_remote and next_fmt:
+            quota_status = "exhausted"
+            quota_reset_label = f"Bloqueo API · Se libera: {next_fmt['local_label']} ({next_fmt['countdown_label']})"
+        elif remaining_today == 0 and next_fmt:
+            quota_status = "exhausted"
+            quota_reset_label = f"Se libera +1 espacio: {next_fmt['local_label']} ({next_fmt['countdown_label']})"
+        elif used_today > 0 and next_fmt:
+            quota_status = "partial"
+            quota_reset_label = (
+                f"{remaining_today} disp. ahora · Próximo refresco: {next_fmt['local_label']} ({next_fmt['countdown_label']})"
+            )
+        else:
+            quota_status = "available_full"
+            quota_reset_label = f"Disponible ahora · Cupo completo ({limit}/{limit})"
+
+        return {
+            "daily_upload_limit": limit,
+            "used_today": used_today,
+            "remaining_today": remaining_today,
+            "is_quota_blocked_remote": is_blocked_remote,
+            "quota_reset_status": quota_status,
+            "next_quota_reset_at": next_fmt["at_utc"] if next_fmt else None,
+            "next_quota_reset_local": next_fmt["local_label"] if next_fmt else "Disponible ahora",
+            "next_quota_reset_countdown": next_fmt["countdown_label"] if next_fmt else "Ahora",
+            "full_quota_reset_at": full_fmt["at_utc"] if full_fmt else None,
+            "full_quota_reset_local": full_fmt["local_label"] if full_fmt else "Cupo completo",
+            "api_reset_at": api_reset_at,
+            "api_reset_local": api_reset_local,
+            "api_reset_countdown": api_reset_countdown,
+            "quota_reset_label": quota_reset_label,
+        }
 
     def _serialize_account(self, db_conn: AccountConnection) -> Dict[str, Any]:
         provider = get_provider(db_conn.provider_id)
@@ -95,8 +246,7 @@ class ConnectionService:
                 and (os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
             )
 
-        limit = max(1, int(db_conn.daily_upload_limit or 6))
-        used_today = self.count_uploads_last_24h(db_conn)
+        quota_info = self.get_quota_reset_info(db_conn)
         niche_list = _parse_niche_tags(db_conn.niche_tags)
         return {
             "connection_id": db_conn.id,
@@ -109,9 +259,7 @@ class ConnectionService:
             "account_id": db_conn.account_id,
             "niche_tags": db_conn.niche_tags or "",
             "niche_list": niche_list,
-            "daily_upload_limit": limit,
-            "used_today": used_today,
-            "remaining_today": max(0, limit - used_today),
+            **quota_info,
             "is_default": bool(db_conn.is_default),
             "last_checked_at": db_conn.last_checked_at.isoformat() if db_conn.last_checked_at else None,
             "last_error": db_conn.last_error,

@@ -11,7 +11,12 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from clipflow.config import get_settings
-from clipflow.connections.service import ConnectionService
+from clipflow.connections.service import (
+    ConnectionService,
+    ensure_utc,
+    format_reset_window,
+    next_youtube_project_reset_utc,
+)
 from clipflow.db import record_audit
 from clipflow.models import (
     AccountConnection,
@@ -37,6 +42,14 @@ AUTH_ERROR_PATTERNS = [
     "permission_denied",
     "oauth_required",
     "invalid api key",
+]
+
+QUOTA_ERROR_PATTERNS = [
+    "uploadlimitexceeded",
+    "quotaexceeded",
+    "spam_risk_too_many_posts",
+    "too many uploads",
+    "daily_upload_limit",
 ]
 
 TRANSIENT_ERROR_PATTERNS = [
@@ -149,13 +162,15 @@ class PublishQueueWorker:
             return job
 
         if conn and not getattr(pub, "mock_mode", False):
-            limit = max(1, int(conn.daily_upload_limit or 6))
-            used_today = conn_svc.count_uploads_last_24h(conn)
-            if used_today >= limit:
+            if conn.quota_blocked_until and ensure_utc(conn.quota_blocked_until) <= ensure_utc(now):
+                conn.quota_blocked_until = None
+            quota_info = conn_svc.get_quota_reset_info(conn, now=now)
+            if quota_info["remaining_today"] <= 0:
                 job.status = "QUEUED_FOR_DAILY_QUOTA"
                 job.last_error = (
-                    f"Cupo diario alcanzado para '{conn.account_name}' ({used_today}/{limit} en 24h). "
-                    "Esperando ventana disponible sin redirigir a otros canales."
+                    f"Cupo diario alcanzado para '{conn.account_name}' "
+                    f"({quota_info['used_today']}/{quota_info['daily_upload_limit']} en 24h). "
+                    f"Próxima actualización: {quota_info['next_quota_reset_local']} ({quota_info['next_quota_reset_countdown']})."
                 )
                 job.updated_at = now
                 record_audit(
@@ -165,7 +180,12 @@ class PublishQueueWorker:
                     "worker",
                     "daily_quota_reached",
                     None,
-                    {"connection_id": conn.id, "used_today": used_today, "limit": limit},
+                    {
+                        "connection_id": conn.id,
+                        "used_today": quota_info["used_today"],
+                        "limit": quota_info["daily_upload_limit"],
+                        "next_quota_reset_at": quota_info["next_quota_reset_at"],
+                    },
                 )
                 session.commit()
                 return job
@@ -277,6 +297,35 @@ class PublishQueueWorker:
                 "auth_failure_pause",
                 None,
                 {"error": safe_error, "platform": platform},
+            )
+            return
+
+        if any(pat in err_lower for pat in QUOTA_ERROR_PATTERNS):
+            now = utc_now()
+            account_ref = job.post_draft.account_id if job.post_draft else None
+            conn = ConnectionService(session).get_connection(platform, account_ref=account_ref)
+            reset_utc = (
+                next_youtube_project_reset_utc(now)
+                if platform == "youtube" and "quotaexceeded" in err_lower
+                else now + timedelta(hours=24)
+            )
+            reset_fmt = format_reset_window(reset_utc, now_utc=now)
+            job.status = "QUEUED_FOR_DAILY_QUOTA"
+            job.last_error = (
+                f"Límite de API alcanzado ({platform}): se actualiza {reset_fmt['local_label']} "
+                f"({reset_fmt['countdown_label']}). Detalle: {safe_error}"
+            )
+            if conn:
+                conn.quota_blocked_until = reset_utc
+                conn.last_error = job.last_error
+            record_audit(
+                session,
+                "PublishJob",
+                job.id,
+                "worker",
+                "remote_quota_reached",
+                None,
+                {"platform": platform, "quota_blocked_until": reset_fmt["at_utc"]},
             )
             return
 

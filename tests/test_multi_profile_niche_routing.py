@@ -311,3 +311,135 @@ def test_two_wave_batch_schedule_and_endpoint(monkeypatch, tmp_path: Path, verti
     assert sum(1 for j in jobs if j["status"] == "QUEUED") == 2
     assert sum(1 for j in jobs if j["status"] == "SCHEDULED") == 2
 
+
+def test_per_account_quota_reset_and_remote_limit_tracking(monkeypatch, tmp_path: Path, vertical_video_path: Path):
+    from datetime import datetime, timedelta, timezone
+    from clipflow.models import AccountConnection
+    from clipflow.queue import PublishQueueWorker
+
+    token = "quota-reset-owner-token-123456"
+    monkeypatch.setenv("OWNER_TOKEN", token)
+    db_file = tmp_path / "quota_reset.db"
+    monkeypatch.setenv("CLIPFLOW_DATABASE_URL", f"sqlite:///{db_file.as_posix()}")
+    monkeypatch.setattr("clipflow.config._active_settings", None)
+    monkeypatch.setattr("clipflow.db._engine", None)
+    monkeypatch.setattr("clipflow.db._SessionFactory", None)
+    init_db()
+
+    sess = get_session()
+    try:
+        svc = ConnectionService(sess)
+        yt_acc = svc.save_connection(
+            provider_id="youtube",
+            account_name="Canal Reset YT",
+            credentials={"client_id": "cid", "client_secret": "sec", "access_token": "tok"},
+            test_now=False,
+            create_new=True,
+            daily_upload_limit=2,
+            niche_tags="gaming",
+        )
+        tt_acc = svc.save_connection(
+            provider_id="tiktok",
+            account_name="Cuenta Reset TT",
+            credentials={"client_key": "ck", "client_secret": "cs", "access_token": "tt"},
+            test_now=False,
+            create_new=True,
+            daily_upload_limit=4,
+            niche_tags="gaming",
+        )
+        conn_yt_row = sess.query(AccountConnection).filter_by(id=yt_acc["connection_id"]).one()
+        conn_yt_row.account_id = "UC_RESET_1"
+        conn_tt_row = sess.query(AccountConnection).filter_by(id=tt_acc["connection_id"]).one()
+        conn_tt_row.account_id = "tt_reset_1"
+        sess.commit()
+
+        from clipflow.connections.service import format_reset_window
+        from clipflow.models import utc_now
+
+        src = Source(source_kind="file", canonical_source=str(vertical_video_path), local_path=str(vertical_video_path))
+        sess.add(src)
+        sess.flush()
+        proj = Project(source_id=src.id, workflow_status="COMPLETED")
+        sess.add(proj)
+        sess.flush()
+        rnd = Render(project_id=proj.id, target_platform="youtube", video_path=str(vertical_video_path))
+        sess.add(rnd)
+        sess.flush()
+
+        now_utc = utc_now()
+        # 2 subidas previas escalonadas en el canal YT: una hace 20h (se libera en 4h) y otra hace 2h (se libera en 22h)
+        d1 = PostDraft(render_id=rnd.id, platform="youtube", account_id=yt_acc["connection_id"], title="Video Viejo")
+        d2 = PostDraft(render_id=rnd.id, platform="youtube", account_id=yt_acc["connection_id"], title="Video Reciente")
+        sess.add_all([d1, d2])
+        sess.flush()
+        j1 = PublishJob(
+            post_draft_id=d1.id,
+            idempotency_key="qr-1",
+            status=JobStatus.PUBLISHED,
+            remote_channel_id="UC_RESET_1",
+            updated_at=now_utc - timedelta(hours=20),
+            created_at=now_utc - timedelta(hours=20),
+        )
+        j2 = PublishJob(
+            post_draft_id=d2.id,
+            idempotency_key="qr-2",
+            status=JobStatus.PUBLISHED,
+            remote_channel_id="UC_RESET_1",
+            updated_at=now_utc - timedelta(hours=2),
+            created_at=now_utc - timedelta(hours=2),
+        )
+        sess.add_all([j1, j2])
+        sess.commit()
+
+        conn_yt = sess.query(AccountConnection).filter_by(id=yt_acc["connection_id"]).one()
+        qinfo = svc.get_quota_reset_info(conn_yt, now=now_utc)
+        expected_next = format_reset_window(now_utc + timedelta(hours=4), now_utc=now_utc)
+        expected_full = format_reset_window(now_utc + timedelta(hours=22), now_utc=now_utc)
+        assert qinfo["used_today"] == 2
+        assert qinfo["remaining_today"] == 0
+        assert qinfo["quota_reset_status"] == "exhausted"
+        assert qinfo["next_quota_reset_local"] == expected_next["local_label"]
+        assert qinfo["next_quota_reset_countdown"] == "en 4h 00m"
+        assert qinfo["full_quota_reset_local"] == expected_full["local_label"]
+        assert "(00:00 PT)" in qinfo["api_reset_local"]
+
+        # Cuenta TikTok sin subidas debe figurar libre y en estado available_full
+        conn_tt = sess.query(AccountConnection).filter_by(id=tt_acc["connection_id"]).one()
+        qinfo_tt = svc.get_quota_reset_info(conn_tt, now=now_utc)
+        assert qinfo_tt["remaining_today"] == 4
+        assert qinfo_tt["quota_reset_status"] == "available_full"
+        assert "Disponible ahora" in qinfo_tt["next_quota_reset_local"]
+
+        # Si una cuenta TikTok recibe un error remoto de límite API, queda bloqueada hasta +24h sin marcar FAILED
+        d_tt = PostDraft(render_id=rnd.id, platform="tiktok", account_id=tt_acc["connection_id"], title="Clip TT Limit")
+        sess.add(d_tt)
+        sess.flush()
+        j_tt = PublishJob(post_draft_id=d_tt.id, idempotency_key="qr-tt-1", status=JobStatus.QUEUED)
+        sess.add(j_tt)
+        sess.commit()
+
+        worker = PublishQueueWorker(lambda: sess)
+        worker._handle_failure(sess, j_tt, "TikTok HTTP 429: spam_risk_too_many_posts", "tiktok")
+        sess.commit()
+        sess.refresh(conn_tt)
+        assert j_tt.status == "QUEUED_FOR_DAILY_QUOTA"
+        assert conn_tt.quota_blocked_until is not None
+        blocked_info = svc.get_quota_reset_info(conn_tt)
+        assert blocked_info["is_quota_blocked_remote"] is True
+        assert blocked_info["remaining_today"] == 0
+    finally:
+        sess.close()
+
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {token}"}
+    for path, expected in (
+        ("/connections", "Próxima actualización:"),
+        ("/overview", "Cuota Diaria y Actualización de API por Cuenta"),
+        ("/queue", "Actualización por cuenta:"),
+    ):
+        html = client.get(path, headers=headers).text
+        assert expected in html
+        assert "Canal Reset YT" in html
+        assert "Reset API" in html or "Reset Google API" in html
+
+

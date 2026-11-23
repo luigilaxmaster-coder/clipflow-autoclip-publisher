@@ -26,7 +26,11 @@ from sqlalchemy.orm import Session
 from clipflow.approvals import ApprovalService
 from clipflow.autoclip_adapter import AutoClipAdapter
 from clipflow.config import get_settings
-from clipflow.connections.service import ConnectionService
+from clipflow.connections.service import (
+    ConnectionService,
+    format_reset_window,
+    next_youtube_project_reset_utc,
+)
 from clipflow.db import get_db, get_db_context, init_db, record_audit
 from clipflow.inbox.service import InboxService
 from clipflow.ingestion import IngestionService
@@ -200,12 +204,17 @@ def _youtube_daily_quota_snapshot(db: Session) -> Dict[str, Any]:
     unit_cost = 1600
     max_uploads = max(1, daily_units // unit_cost)
     used_units = recent_yt * unit_cost
+    now_ref = utc_now()
+    yt_reset = format_reset_window(next_youtube_project_reset_utc(now_ref), now_utc=now_ref)
     return {
         "used_uploads": recent_yt,
         "max_uploads": max_uploads,
         "remaining_uploads": max(0, max_uploads - recent_yt),
         "used_units": used_units,
         "daily_units": daily_units,
+        "api_reset_at": yt_reset["at_utc"],
+        "api_reset_local": f"{yt_reset['local_label']} (00:00 PT)",
+        "api_reset_countdown": yt_reset["countdown_label"],
     }
 
 
@@ -447,6 +456,7 @@ def overview_view(request: Request, db: Session = Depends(get_db)):
             "daily_counts": dict(sorted(daily_counts.items())[-14:]),
             "health": health,
             "youtube_quota": _youtube_daily_quota_snapshot(db),
+            "provider_accounts": ConnectionService(db).list_provider_accounts(),
         },
     )
 
@@ -627,7 +637,12 @@ def queue_view(request: Request, db: Session = Depends(get_db)):
     return _render(
         request,
         "queue.html",
-        {"jobs": jobs, "counts": counts, "youtube_quota": _youtube_daily_quota_snapshot(db)},
+        {
+            "jobs": jobs,
+            "counts": counts,
+            "youtube_quota": _youtube_daily_quota_snapshot(db),
+            "provider_accounts": ConnectionService(db).list_provider_accounts(),
+        },
     )
 
 

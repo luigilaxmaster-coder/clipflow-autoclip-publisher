@@ -105,6 +105,11 @@ def route_text_to_profiles(
             "daily_upload_limit": acc["daily_upload_limit"],
             "remaining_today": acc["remaining_today"],
             "quota_available": acc["remaining_today"] > 0,
+            "next_quota_reset_at": acc["next_quota_reset_at"],
+            "next_quota_reset_local": acc["next_quota_reset_local"],
+            "next_quota_reset_countdown": acc["next_quota_reset_countdown"],
+            "api_reset_local": acc["api_reset_local"],
+            "quota_reset_label": acc["quota_reset_label"],
         }
 
     return routes

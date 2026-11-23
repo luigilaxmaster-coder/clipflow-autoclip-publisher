@@ -129,7 +129,7 @@
       </span>
       {% if youtube_quota %}
         <span class="badge {% if youtube_quota.remaining_uploads > 0 %}badge-info{% else %}badge-warn{% endif %}">
-          Cuota YouTube 24h: {{ youtube_quota.used_uploads }}/{{ youtube_quota.max_uploads }} subidas ({{ youtube_quota.remaining_uploads }} disp.)
+          Cuota YouTube 24h: {{ youtube_quota.used_uploads }}/{{ youtube_quota.max_uploads }} subidas ({{ youtube_quota.remaining_uploads }} disp.) · Reset API: {{ youtube_quota.api_reset_local }}
         </span>
       {% endif %}
     </div>
@@ -142,6 +142,45 @@
       <a href="/publisher" class="btn btn-primary btn-sm">Abrir Studio</a>
     </div>
   </section>
+
+  {% if provider_accounts %}
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Cuota Diaria y Actualización de API por Cuenta</h2>
+          <p class="card-subtitle">Cuándo se libera el siguiente espacio (ventana 24h por cuenta y reinicio oficial 00:00 PT de YouTube)</p>
+        </div>
+        <a href="/connections" class="text-sm" style="color:var(--accent-indigo-hover);font-weight:600;">Gestionar perfiles &rarr;</a>
+      </div>
+      <div class="card-padded grid-3" style="gap:12px;">
+        {% for acc in provider_accounts %}
+          <div class="card card-padded flex-col gap-2" style="background:var(--bg-input);">
+            <div class="flex items-center justify-between gap-2">
+              <span class="flex items-center gap-2">
+                {{ platform_icon(acc.provider_id, 18) }}
+                <strong style="font-size:13px;color:var(--text-primary);">{{ acc.account_name }}</strong>
+              </span>
+              <span class="badge {% if acc.remaining_today == 0 %}badge-danger{% elif acc.used_today > 0 %}badge-info{% else %}badge-success{% endif %}">
+                {{ acc.used_today }}/{{ acc.daily_upload_limit }} ({{ acc.remaining_today }} disp.)
+              </span>
+            </div>
+            <div class="text-xs">
+              <span class="text-muted">Actualiza cupo:</span>
+              {% if acc.next_quota_reset_at %}
+                <strong class="font-mono" style="color:var(--text-primary);">{{ acc.next_quota_reset_local }}</strong>
+                <span class="font-mono text-muted">(<span data-countdown-at="{{ acc.next_quota_reset_at }}">{{ acc.next_quota_reset_countdown }}</span>)</span>
+              {% else %}
+                <strong class="text-success">Disponible ahora</strong>
+              {% endif %}
+            </div>
+            {% if acc.provider_id == 'youtube' %}
+              <div class="text-xs text-muted font-mono">Reset Google API: {{ acc.api_reset_local }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
 
   <!-- Recent Activity + Upcoming + AutoClip Projects -->
   <section class="grid-12">

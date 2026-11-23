@@ -184,6 +184,7 @@ class AccountConnection(Base):
     limits_json = Column(Text, nullable=True)
     niche_tags = Column(String(512), nullable=True)
     daily_upload_limit = Column(Integer, default=6, nullable=False)
+    quota_blocked_until = Column(DateTime(timezone=True), nullable=True)
     is_default = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
